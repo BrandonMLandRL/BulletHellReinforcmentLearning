@@ -21,6 +21,7 @@ BULLET_DAMAGE = 10
 ENEMY_SPAWN_MIN = 250  # milliseconds
 ENEMY_SPAWN_MAX = 3000  # milliseconds
 ENEMY_ACTION_INTERVAL = 250  # milliseconds
+PLAYER_HEALTH_MAX = 100
 
 # Colors
 BLUE = (0, 100, 255)
@@ -129,7 +130,7 @@ class Entity:
 
 class Player(Entity):
     def __init__(self, x, y):
-        super().__init__(x, y, PLAYER_SPEED, 100, True, SHOOT_INTERVAL_PLAYER)
+        super().__init__(x, y, PLAYER_SPEED, PLAYER_HEALTH_MAX, True, SHOOT_INTERVAL_PLAYER)
         self.action = None
     
     def update(self, keys, bullets):
