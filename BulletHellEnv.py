@@ -74,7 +74,7 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
         "render_fps": 50,
     }
 
-    def __init__(render_mode: str | None = "terminal"):
+    def __init__(self, render_mode: str | None = "terminal"):
         self.world_width = 500
         self.world_height = 500
         self.screen_width = 500
@@ -92,6 +92,7 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
         self.enemy_action_interval = 250  # milliseconds
         self.player_health_max = 100
 
+    
         #Define the actionspace 
         self.action_space = spaces.Dict({
             "move": spaces.Discrete(5),
@@ -103,22 +104,28 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
             )
         })
 
+        #For the observation space scaling
+        self.N_enemies = 5 #We will track 5 enemies max
+        self.N_bullets = 10 #We will track 10 bullets max
+
         #Define the observation space
         self.observation_space = self.observation_space = spaces.Dict({
             "enemies": spaces.Box(
                 low=-np.inf,
                 high=np.inf,
-                shape=(N_enemies, 4),
+                shape=(self.N_enemies, 4),
                 dtype=np.float32
             ),
             "bullets": spaces.Box(
                 low=-np.inf,
                 high=np.inf,
-                shape=(N_bullets, 4),
+                shape=(self.N_bullets, 4),
                 dtype=np.float32
             ),
         })
             
+        self.render_mode = render_mode
+        print(f"{render_mode}")
 
     def step(self, action):
         # MOVE_LOOKUP = {
@@ -142,3 +149,7 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
 
     def close(self):
         pass
+
+
+if __name__ == "__main__":
+    BulletHellEnv()
