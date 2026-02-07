@@ -14,13 +14,13 @@ ENTITY_SIZE = 20
 BULLET_SIZE = 10
 PLAYER_SPEED = 5
 ENEMY_SPEED = 3
-BULLET_SPEED = 2
+BULLET_SPEED = 5
 SHOOT_INTERVAL_ENEMY = 2000  # milliseconds
 SHOOT_INTERVAL_PLAYER = 250
 BULLET_DAMAGE = 10
 ENEMY_SPAWN_MIN = 250  # milliseconds
 ENEMY_SPAWN_MAX = 3000  # milliseconds
-ENEMY_ACTION_INTERVAL = 250  # milliseconds
+ENEMY_ACTION_INTERVAL = 666  # milliseconds
 PLAYER_HEALTH_MAX = 100
 
 # Colors
@@ -43,7 +43,7 @@ class Bullet:
         self.vel_x = math.cos(angle_rad) * self.speed
         self.vel_y = math.sin(angle_rad) * self.speed
         self.rect = pygame.Rect(x, y, self.size, self.size)
-    
+
     def update(self):
         # Update position based on velocity
         self.x += self.vel_x
@@ -68,6 +68,8 @@ class Entity:
         self.x = x
         self.y = y
         self.size = ENTITY_SIZE
+        self.vx = 0
+        self.vy = 0
         self.speed = speed
         self.health = health
         self.aim_angle = 0
@@ -85,8 +87,7 @@ class Entity:
         for bullet in bullets:
             if self.rect.colliderect(bullet.rect):
                 # A friendly bullet can hit the enemy. Unfriendly bullets can hit the player.
-                if (self.is_friendly and not bullet.is_friendly) or \
-                   (not self.is_friendly and bullet.is_friendly):
+                if (self.is_friendly and not bullet.is_friendly) or (not self.is_friendly and bullet.is_friendly):
                     # Take damage
                     self.health -= bullet.damage
                     if not self.is_friendly:
@@ -106,12 +107,24 @@ class Entity:
         """Update position based on current action."""
         if self.action == 'left':
             self.x -= self.speed
+            self.vx = -1
+            self.vy = 0
         elif self.action == 'right':
             self.x += self.speed
+            self.vx = 1
+            self.vy = 0
         elif self.action == 'up':
             self.y -= self.speed
+            self.vx = 0
+            self.vy = -1
         elif self.action == 'down':
             self.y += self.speed
+            self.vx = 0
+            self.vy = 1
+        else:
+            self.vx = 0 
+            self.vy = 0
+        
         
         # Keep entity within world bounds
         self.x = max(0, min(WORLD_WIDTH - self.size, self.x))
@@ -129,21 +142,24 @@ class Entity:
         pygame.draw.rect(screen, color, (screen_x, screen_y, self.size, self.size))
 
 class Player(Entity):
-    def __init__(self, x, y):
+    def __init__(self, x, y, is_env=False):
         super().__init__(x, y, PLAYER_SPEED, PLAYER_HEALTH_MAX, True, SHOOT_INTERVAL_PLAYER)
         self.action = None
-    
-    def update(self, keys, bullets):
+        self.is_env = is_env
+    def update(self, keys, bullets, action=""):
         # Handle movement based on keys
         self.action = None
-        if keys[pygame.K_w] or keys[pygame.K_UP]:
-            self.action = 'up'
-        elif keys[pygame.K_s] or keys[pygame.K_DOWN]:
-            self.action = 'down'
-        elif keys[pygame.K_a] or keys[pygame.K_LEFT]:
-            self.action = 'left'
-        elif keys[pygame.K_d] or keys[pygame.K_RIGHT]:
-            self.action = 'right'
+        if self.is_env:
+            self.action = action
+        else:
+            if keys[pygame.K_w] or keys[pygame.K_UP]:
+                self.action = 'up'
+            elif keys[pygame.K_s] or keys[pygame.K_DOWN]:
+                self.action = 'down'
+            elif keys[pygame.K_a] or keys[pygame.K_LEFT]:
+                self.action = 'left'
+            elif keys[pygame.K_d] or keys[pygame.K_RIGHT]:
+                self.action = 'right'
         
         self.update_position()
         
@@ -155,7 +171,8 @@ class Player(Entity):
         """Handle shooting at timed intervals with random angle."""
         if current_time - self.shoot_timer >= self.shoot_timer_max:
             # Random angle from 0 to 360 degrees
-            self.aim_angle = random.uniform(0, 360)
+            # self.aim_angle = random.uniform(0, 360)
+            #Environment will choose the aim angle. 
             self.shoot_timer = current_time
             return self.spawn_bullet(BULLET_DAMAGE)
         return None

@@ -3,10 +3,11 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import logger, spaces
 from gymnasium.error import DependencyNotInstalled
-import bullethell
-#The Env Class accepts two inputs ObsType and ActType.
-#Before we implement dual action, we will first get the player to move in the environment. 
-#This means only one dimension for actions for now. 
+
+from typing import Optional, Union
+
+from bullethell import * 
+
 class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
     """
     ## Description 
@@ -89,7 +90,7 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
         self.bullet_damage = 10
         self.enemy_spawn_min = 250        # milliseconds
         self.enemy_spawn_max = 3000       # milliseconds
-        self.enemy_action_interval = 250  # milliseconds
+        self.enemy_action_interval = 1500  # milliseconds
         self.player_health_max = 100
 
     
@@ -110,6 +111,12 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
 
         #Define the observation space
         self.observation_space = self.observation_space = spaces.Dict({
+            "player": spaces.Box(
+                low=-np.inf,
+                high=np.inf,
+                shape=(3,),
+                dtype=np.float32
+            ),     
             "enemies": spaces.Box(
                 low=-np.inf,
                 high=np.inf,
@@ -124,25 +131,130 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
             ),
         })
             
+        self.state = None
         self.render_mode = render_mode
-        print(f"{render_mode}")
 
-    def step(self, action):
-        # MOVE_LOOKUP = {
-        #     0: (-1, 0),  # Left
-        #     1: (1, 0),   # Right
-        #     2: (0, 1),   # Up
-        #     3: (0, -1),  # Down
-        #     4: (0, 0),   # No movement
-        # }
+        # print(f"{render_mode}")
 
-        # dx, dy = MOVE_LOOKUP[action["move"]]
-        # angle = action["fire_angle"][0]
+    def step(self, action): 
+        err_msg = f"{action!r} ({type(action)}) invalid"
+        assert self.action_space.contains(action), err_msg
+        assert self.state is not None, "Call reset before using step method."
 
-        pass
+        # Get current time
+        current_time = pygame.time.get_ticks()
+        
+         # Spawn enemies at random intervals
+        if current_time - self.last_enemy_spawn_time >= self.next_spawn_interval:
+            # Spawn enemy at random position
+            enemy_x = random.randint(0, WORLD_WIDTH - ENTITY_SIZE)
+            enemy_y = random.randint(0, WORLD_HEIGHT - ENTITY_SIZE)
+            self.enemies.append(Enemy(enemy_x, enemy_y))
+            self.last_enemy_spawn_time = current_time
+            self.next_spawn_interval = random.randint(ENEMY_SPAWN_MIN, ENEMY_SPAWN_MAX)
 
-    def reset(self):
-        pass
+        MOVE_LOOKUP = {
+            0: 'left',  # Left
+            1: 'right',   # Right
+            2: 'up',   # Up
+            3: 'down',  # Down
+            4: 'none',   # No movement
+        }
+
+        dir = MOVE_LOOKUP[action["move"]]
+        angle = action["fire_angle"][0]
+
+        #Update player and apply action
+        bullets_to_remove = self.player.update(None, self.bullets, dir)
+        self.player.aim_angle = angle
+        for bullet in bullets_to_remove:
+            if bullet in self.bullets:
+                self.bullets.remove(bullet)
+
+        ## Collect the state of the environment. 
+
+        #Get health and position of player
+        player_health = self.player.health
+        player_global_position = np.array(self.player.x, self.player.y)        
+
+        #List of size self.N_enemies
+        enemy_obs = None
+        #Max distance and idx of it in enemy_obs
+        max_dist_idx = 0
+        max_dist_value = 0
+        dists = None
+        i = 0
+        for e in self.enemies:
+            #Calculate the relative position to the player.
+            vx = e.vx
+            vy = e.vy
+            rel_x = e.x - self.player.x
+            rel_y = e.y - self.player.y
+            dist = np.linalg.norm(np.array(e.x,e.y) - player_global_position)
+            print(f"Distance to player {dist}")
+            if len(enemy_obs) > self.N_enemies - 1:
+                #If the enemy is closer than any enemy in the list, replace the enemy with the greatest distance 
+                if dist < max_dist_value:
+                    #Replace the entry at that index with this enemy
+                    enemy_obs[max_dist_idx] = (rel_x,rel_y,vx,vy)
+                    dists[max_dist_idx] = dist
+                    #Find the new greatest max in the array
+                    m = 0 #temp max
+                    j = 0 #iterator
+                    for i in dists:
+                        if i > m:
+                            m = i
+                            max_dist_idx = j
+                        j += 1
+                    max_dist_value = m
+
+            else:
+                #Add the enemy to the observations and record if it has the greatest distance
+                if dist > max_dist_value:
+                    max_dist_value = dist
+                    max_dist_idx = i
+                enemy_obs.append((rel_x,rel_y,vx,vy))
+                dists.append(dist)
+                i += 1 
+
+        print(enemy_obs)
+        
+        #Collect the 
+
+
+        #Return np array of observations, reward, terminated, 
+        return np.array(self.state, dtype=np.float32), reward, terminated, False, {}
+
+
+    def reset(self, seed: Optional[int] = None,):
+
+        super().reset(seed=seed)
+
+        #Lets set the initial state of the world here 
+
+        #Initialize player at random position
+        self.player = Player(
+            random.randint(0, WORLD_WIDTH - ENTITY_SIZE),
+            random.randint(0, WORLD_HEIGHT - ENTITY_SIZE),
+            True
+        )
+
+        #Entity and bullet management
+        self.enemies = []
+        self.bullets = []
+        self.last_shot_time = 0
+        self.last_enemy_spawn_time = 0
+        self.next_spawn_interval = random.randint(ENEMY_SPAWN_MIN, ENEMY_SPAWN_MAX)
+        
+        for i in range(0,10):
+            enemy_x = random.randint(0, WORLD_WIDTH - ENTITY_SIZE)
+            enemy_y = random.randint(0, WORLD_HEIGHT - ENTITY_SIZE)
+            self.enemies.append(Enemy(enemy_x, enemy_y))
+
+        self.running = True
+
+        #Define state
+        self.state()
 
     def render(self):
         pass
@@ -152,4 +264,12 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
 
 
 if __name__ == "__main__":
-    BulletHellEnv()
+    env = BulletHellEnv()
+    obs = env.reset()
+    while True:
+        action = env.action_space.sample()
+        obs, rewards, done, info = env.step(action)
+        env.render()
+
+        if done:
+            break
