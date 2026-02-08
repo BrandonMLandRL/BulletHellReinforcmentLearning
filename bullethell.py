@@ -14,7 +14,8 @@ ENTITY_SIZE = 20
 BULLET_SIZE = 10
 PLAYER_SPEED = 5
 ENEMY_SPEED = 3
-BULLET_SPEED = 5
+BULLET_SPEED_PLAYER = 8
+BULLET_SPEED_ENEMY = 5
 SHOOT_INTERVAL_ENEMY = 2000  # milliseconds
 SHOOT_INTERVAL_PLAYER = 250
 BULLET_DAMAGE = 10
@@ -22,6 +23,10 @@ ENEMY_SPAWN_MIN = 250  # milliseconds
 ENEMY_SPAWN_MAX = 3000  # milliseconds
 ENEMY_ACTION_INTERVAL = 666  # milliseconds
 PLAYER_HEALTH_MAX = 100
+
+#Events
+ENEMY_KILLED = pygame.USEREVENT + 1
+
 
 # Colors
 BLUE = (0, 100, 255)
@@ -35,7 +40,7 @@ class Bullet:
         self.y = y
         self.size = BULLET_SIZE
         self.angle = angle  # in degrees
-        self.speed = BULLET_SPEED
+        self.speed = BULLET_SPEED_PLAYER if is_friendly else BULLET_SPEED_ENEMY
         self.damage = damage
         self.is_friendly = is_friendly
         # Convert angle to radians and calculate direction vector
@@ -78,6 +83,8 @@ class Entity:
         self.is_friendly = is_friendly
         self.action = None  # 'left', 'right', 'up', 'down', or None
         self.rect = pygame.Rect(x, y, self.size, self.size)
+
+        self.kill_count = 0 #for player, to track kills in env for rewards
     
     def is_colliding(self, bullets):
         """Check if the entity is colliding with any bullets this update.
@@ -91,7 +98,11 @@ class Entity:
                     # Take damage
                     self.health -= bullet.damage
                     if not self.is_friendly:
-                        print("hit enemy") 
+                        print("hit enemy")
+                        #Post an enemy death event      
+                        pygame.event.post(pygame.event.Event(ENEMY_KILLED))                  
+                    else:
+                        print("hit the player")
                     bullets_to_remove.append(bullet)
         return bullets_to_remove
     

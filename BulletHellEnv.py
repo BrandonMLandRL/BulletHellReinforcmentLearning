@@ -91,9 +91,15 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
         self.enemy_spawn_min = 250        # milliseconds
         self.enemy_spawn_max = 3000       # milliseconds
         self.enemy_action_interval = 1500  # milliseconds
-        self.player_health_max = 100
 
-    
+        #Comparatory values to detect changes in environment easily
+        self.player_previous_health = PLAYER_HEALTH_MAX
+        self.player_previous_kill_count = 0
+
+
+        self.max_steps = 10000
+        self.step_count = 0
+
         #Define the actionspace 
         self.action_space = spaces.Dict({
             "move": spaces.Discrete(5),
@@ -112,20 +118,29 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
         #Define the observation space
         self.observation_space = self.observation_space = spaces.Dict({
             "player": spaces.Box(
-                low=-np.inf,
-                high=np.inf,
+                #The following is with normalization
+                #Player health from 0 - 1, player x (0,1) player y (0,1)
+                low =np.array([0, 0, 0], dtype=np.float32), 
+                high=np.array([1, 1.0, 1.0], dtype=np.float32),
                 shape=(3,),
                 dtype=np.float32
             ),     
             "enemies": spaces.Box(
-                low=-np.inf,
-                high=np.inf,
+                #Enemy relative positions go from (-1,1) for x and y
+                #Enemy relative velocities also go from (-1,1)
+                low=np.tile(np.array([-1.0, -1.0, -1.0, -1.0], dtype=np.float32),
+                            (self.N_enemies, 1)),
+                high=np.tile(np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float32),
+                            (self.N_enemies, 1)),
                 shape=(self.N_enemies, 4),
                 dtype=np.float32
             ),
             "bullets": spaces.Box(
-                low=-np.inf,
-                high=np.inf,
+                #Bullet relative position and velocity values all range from -1,1
+                 low=np.tile(np.array([-1.0, -1.0, -1.0, -1.0], dtype=np.float32),
+                        (self.N_bullets, 1)),
+                high=np.tile(np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float32),
+                        (self.N_bullets, 1)),
                 shape=(self.N_bullets, 4),
                 dtype=np.float32
             ),
@@ -143,6 +158,7 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
 
         # Get current time
         current_time = pygame.time.get_ticks()
+        # print(f"ClockClockClockClockClockClock {current_time} ClockClockClockClockClockClock")
         
          # Spawn enemies at random intervals
         if current_time - self.last_enemy_spawn_time >= self.next_spawn_interval:
@@ -153,6 +169,8 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
             self.last_enemy_spawn_time = current_time
             self.next_spawn_interval = random.randint(ENEMY_SPAWN_MIN, ENEMY_SPAWN_MAX)
 
+
+        #Get actions for the player
         MOVE_LOOKUP = {
             0: 'left',  # Left
             1: 'right',   # Right
@@ -166,71 +184,155 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
 
         #Update player and apply action
         bullets_to_remove = self.player.update(None, self.bullets, dir)
+        #Set the player's aim angle
         self.player.aim_angle = angle
         for bullet in bullets_to_remove:
             if bullet in self.bullets:
                 self.bullets.remove(bullet)
-
-        ## Collect the state of the environment. 
-
-        #Get health and position of player
-        player_health = self.player.health
-        player_global_position = np.array(self.player.x, self.player.y)        
-
-        #List of size self.N_enemies
-        enemy_obs = None
-        #Max distance and idx of it in enemy_obs
-        max_dist_idx = 0
-        max_dist_value = 0
-        dists = None
-        i = 0
-        for e in self.enemies:
-            #Calculate the relative position to the player.
-            vx = e.vx
-            vy = e.vy
-            rel_x = e.x - self.player.x
-            rel_y = e.y - self.player.y
-            dist = np.linalg.norm(np.array(e.x,e.y) - player_global_position)
-            print(f"Distance to player {dist}")
-            if len(enemy_obs) > self.N_enemies - 1:
-                #If the enemy is closer than any enemy in the list, replace the enemy with the greatest distance 
-                if dist < max_dist_value:
-                    #Replace the entry at that index with this enemy
-                    enemy_obs[max_dist_idx] = (rel_x,rel_y,vx,vy)
-                    dists[max_dist_idx] = dist
-                    #Find the new greatest max in the array
-                    m = 0 #temp max
-                    j = 0 #iterator
-                    for i in dists:
-                        if i > m:
-                            m = i
-                            max_dist_idx = j
-                        j += 1
-                    max_dist_value = m
-
-            else:
-                #Add the enemy to the observations and record if it has the greatest distance
-                if dist > max_dist_value:
-                    max_dist_value = dist
-                    max_dist_idx = i
-                enemy_obs.append((rel_x,rel_y,vx,vy))
-                dists.append(dist)
-                i += 1 
-
-        print(enemy_obs)
         
-        #Collect the 
+        #Make the player shoot
+        player_bullet = self.player.shoot(current_time)
+        if player_bullet:
+            self.bullets.append(player_bullet)
+
+        #Update enemies and apply their actions
+        for enemy in self.enemies[:]:
+            # Enemy shooting
+            enemy_bullet = enemy.shoot(current_time)
+            if enemy_bullet:
+                self.bullets.append(enemy_bullet)
+            
+            # Enemy update
+            bullets_to_remove = enemy.update(self.player, current_time, self.bullets)
+            for bullet in bullets_to_remove:
+                if bullet in self.bullets:
+                    self.bullets.remove(bullet)
+            
+            # Remove dead enemies
+            if enemy.health <= 0:
+                self.enemies.remove(enemy)
+
+        #Update bullets 
+        for bullet in self.bullets[:]:
+            bullet.update()
+            if bullet.is_off_screen():
+                self.bullets.remove(bullet)
+
+        #TODO: Update the observation state
+        ## Collect the state of the environment. 
+        #Collect the N_bullets closest bullets
+        closest_bullets = self.get_closest_entities(self.player.x, self.player.y, self.bullets, self.N_bullets)
+        #Remove any friendly bullets from the list
+        closest_bullets = [b for b in closest_bullets if not b.is_friendly]
+        #Pass the bullets into a np.array
+        #Create a padded np array for the bullets
+        self.bullet_obs = np.zeros((self.N_bullets, 4), dtype=np.float32)
+        for i, b in enumerate(closest_bullets[:self.N_bullets]):
+            #Create relative coordinates and grab velocities with normalization
+            self.bullet_obs[i] = np.array(
+                [
+                    (b.x - self.player.x)/WORLD_WIDTH,
+                    (b.y - self.player.y)/WORLD_HEIGHT,
+                    b.vel_x / BULLET_SPEED_ENEMY,
+                    b.vel_y / BULLET_SPEED_ENEMY
+                ],
+            dtype=np.float32
+            )
+        
+        
+        #Collect the N_enemies closest enemies
+        closest_enemies = self.get_closest_entities(self.player.x, self.player.y, self.enemies, self.N_enemies)
+
+        #Create a padded np array for the enemies
+        self.enemies_obs = np.zeros((self.N_enemies, 4), dtype=np.float32)
+        for i, enemy in enumerate(closest_enemies[:self.N_enemies]):
+            #Create relative to the player cooridnates by subtracting x from p.x and y from p.y
+            self.enemies_obs[i] = np.array(
+                [
+                    (enemy.x - self.player.x)/WORLD_WIDTH,
+                    (enemy.y - self.player.y)/WORLD_HEIGHT,
+                    enemy.vx,
+                    enemy.vy
+                ], 
+            dtype=np.float32
+            ) 
+ 
+
+        self.state = {
+                "player"  : np.array((self.player.health/PLAYER_HEALTH_MAX, self.player.x/WORLD_WIDTH, self.player.y/WORLD_WIDTH)),
+                "enemies" : self.enemies_obs,
+                "bullets" : self.bullet_obs,
+        }
 
 
-        #Return np array of observations, reward, terminated, 
-        return np.array(self.state, dtype=np.float32), reward, terminated, False, {}
+        reward = 0
+        #Supply positive reward for killing enemies
+        for event in pygame.event.get():
+            if event.type == ENEMY_KILLED:
+                self.player.kill_count += 1
+        if self.player.kill_count > self.player_previous_kill_count: 
+            reward = 100
+            self.player_previous_kill_count = self.player.kill_count
+            print(f"we dun got em {self.player.kill_count} ++++100")
+            
 
+
+        #Supply negative reward for getting hit
+        elif self.player.health < self.player_previous_health:
+            reward = -100
+            self.player_previous_health = self.player.health
+            print("took damage -100")
+        
+        #Supply positive reward for not getting hit
+        else:
+            reward = 1
+
+
+        #Determine if the game is over 
+        terminated = False
+        truncated = False
+        if self.player.health <= 0:
+            terminated = True
+
+        #Truncate the episode if the step count exceeds the max
+        if self.step_count >= self.max_steps:
+            truncated = True
+
+
+        self.step_count += 1
+
+        if self.step_count % 100 == 0:
+            for i in range(0,len(closest_bullets)):
+                print(f"Bullet obs: {closest_bullets[i].vel_x}, {closest_bullets[i].vel_y}, isfriendly: {closest_bullets[i].is_friendly}")
+            print(f"State {self.state}")
+        if self.render_mode == "human":
+            self.render()
+
+
+        #Tick the game clock 
+        dt = pygame.time.Clock().tick(60)
+        info = f"MS since last tick : {dt}, current time: {current_time}, step count: {self.step_count}, state: {self.state}"
+        #Return  observations, reward, terminated or truncated, and info
+        return self.state, reward, terminated or truncated, {info}
+
+    def get_closest_entities(self, ref_x, ref_y, entity_list, num_of_entities):
+        if len(entity_list) == 0:
+            return []
+
+        # Sort by squared distance (faster, same ordering)
+        sorted_entities = sorted(
+            entity_list,
+            key=lambda e: (e.x - ref_x) ** 2 + (e.y - ref_y) ** 2
+        )
+
+        return sorted_entities[:num_of_entities]
 
     def reset(self, seed: Optional[int] = None,):
 
         super().reset(seed=seed)
 
         #Lets set the initial state of the world here 
+        self.step_count = 0
 
         #Initialize player at random position
         self.player = Player(
@@ -246,30 +348,83 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
         self.last_enemy_spawn_time = 0
         self.next_spawn_interval = random.randint(ENEMY_SPAWN_MIN, ENEMY_SPAWN_MAX)
         
-        for i in range(0,10):
+        for i in range(0,3):
             enemy_x = random.randint(0, WORLD_WIDTH - ENTITY_SIZE)
             enemy_y = random.randint(0, WORLD_HEIGHT - ENTITY_SIZE)
-            self.enemies.append(Enemy(enemy_x, enemy_y))
+            e = Enemy(enemy_x, enemy_y)
+            self.enemies.append(e)
+            # print(f"enemy i: {e.x} , {e.y}")
+        
+        #Get the enemies that we will use for observations
+        enemy_obs_list = self.get_closest_entities(self.player.x, self.player.y, self.enemies, self.N_enemies)
+
+        #Convert the enemy list into np format
+        self.enemies_obs = np.zeros((self.N_enemies, 4), dtype=np.float32)
+        for i, enemy in enumerate(enemy_obs_list[:self.N_enemies]):
+            #Create relative to the player cooridnates by subtracting x from p.x and y from p.y
+            self.enemies_obs[i] = np.array(
+                [
+                    (enemy.x - self.player.x)/WORLD_WIDTH,
+                    (enemy.y - self.player.y)/WORLD_HEIGHT,
+                    enemy.vx,
+                    enemy.vy
+                ],
+            dtype=np.float32
+            )
 
         self.running = True
 
+        bullets = np.zeros((self.N_bullets, 4), dtype=np.float32)
+
         #Define state
-        self.state()
+        self.state = {
+            "player"  : np.array((self.player.health/PLAYER_HEALTH_MAX, self.player.x/WORLD_WIDTH, self.player.y/WORLD_HEIGHT)),
+            "enemies" : self.enemies_obs,
+            "bullets" : bullets,
+        }
+
+        # print(self.state)
 
     def render(self):
-        pass
+        self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
+        pygame.display.set_caption("Bullet Hell Environment")
 
+        camera_x = self.player.x + self.player.size // 2 - SCREEN_WIDTH // 2
+        camera_y = self.player.y + self.player.size // 2 - SCREEN_HEIGHT // 2
+        #Clamp camera to world bounds
+        camera_x = max(0, min(self.screen_width - self.screen_width, camera_x))
+        camera_y = max(0, min(self.screen_height - self.screen_height, camera_y))
+        
+        #Draw player
+        self.player.draw(self.screen, camera_x, camera_y)
+        
+        #Draw enemies
+        for enemy in self.enemies:
+            enemy.draw(self.screen, camera_x, camera_y)
+        
+        #Draw bullets
+        for bullet in self.bullets:
+            bullet.draw(self.screen, camera_x, camera_y)
+
+        pygame.display.flip()
     def close(self):
-        pass
+        if self.screen is not None:
+
+            pygame.display.quit()
+            pygame.quit()
+            self.isopen = False
 
 
 if __name__ == "__main__":
-    env = BulletHellEnv()
-    obs = env.reset()
-    while True:
-        action = env.action_space.sample()
-        obs, rewards, done, info = env.step(action)
-        env.render()
+    env = BulletHellEnv(render_mode="human")
+    for i in range(0,10):
+        obs = env.reset()
+        while True:
+            obs_space = env.observation_space
+            print(obs_space)
+            # action = env.action_space.sample()
+            # obs, rewards, done, info = env.step(action)
+            # env.render()
 
-        if done:
-            break
+            # if done:
+            #     break
