@@ -33,5 +33,5 @@ def get_action_dim():
     print(action_dim)
 
 if __name__ == "__main__":
-    # get_state_dim()
-    get_action_dim()
+    get_state_dim()
+    # get_action_dim()

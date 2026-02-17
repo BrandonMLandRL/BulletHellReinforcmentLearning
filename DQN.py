@@ -8,6 +8,20 @@
 
 from Utils import get_action_dim, get_state_dim
 
+
+import tensorflow as tf
+import tf_agents
+from tf_agents.environments import tf_py_environment
+from tf_agents.agents.dqn import dqn_agent
+from tf_agents.networks.q_network import QNetwork
+from tf_agents.replay_buffers import tf_uniform_replay_buffer
+from tf_agents.utils import common
+from tf_agents.drivers import dynamic_step_driver
+from tf_agents.policies import random_tf_policy
+from tf_agents.trajectories import trajectory
+import numpy as np
+import matplotlib.pyplot as plt
+
 class DeepQNetwork:
     def __init__(self):
         #Mathy params
@@ -17,3 +31,7 @@ class DeepQNetwork:
         self.obs_dim = get_state_dim()
 
         
+if __name__ == "__main__":
+    print("Creating DQN")
+    dqn = DeepQNetwork()
+    print("MUAHAHAHA")
