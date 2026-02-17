@@ -6,7 +6,7 @@
 
 #First we will collect the 
 
-from src.bulllet_hell_rl.Utils import get_action_dim, get_state_dim
+from Utils import get_action_dim, get_state_dim
 
 
 import tensorflow as tf
@@ -25,6 +25,7 @@ import matplotlib.pyplot as plt
 class DeepQNetwork:
     def __init__(self):
         #Mathy params
+
 
         self.action_dim = get_action_dim()
         self.obs_dim = get_state_dim()
