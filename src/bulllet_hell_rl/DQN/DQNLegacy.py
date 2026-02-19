@@ -278,12 +278,12 @@ class DeepQLearning:
         if randomNumber < self.epsilon:
             # returns a random action selected from: 0,1,...,actionNumber-1
             return np.random.choice(self.actionDimension)            
-        
+            print("random")
         # otherwise, we are selecting greedy actions
         else:
             # we return the index where Qvalues[state,:] has the max value
             # that is, since the index denotes an action, we select greedy actions
-                       
+            print("from learning")
             Qvalues=self.mainNetwork.predict(state.reshape(1,self.stateDimension), verbose=0)
           
             return np.random.choice(np.where(Qvalues[0,:]==np.max(Qvalues[0,:]))[0])
