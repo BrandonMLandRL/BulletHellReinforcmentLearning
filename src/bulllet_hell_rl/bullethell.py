@@ -12,10 +12,10 @@ SCREEN_WIDTH = 500
 SCREEN_HEIGHT = 500
 ENTITY_SIZE = 20
 BULLET_SIZE = 10
-PLAYER_SPEED = 5
-ENEMY_SPEED = 3
-BULLET_SPEED_PLAYER = 8
-BULLET_SPEED_ENEMY = 5
+PLAYER_SPEED = 200
+ENEMY_SPEED = 200
+BULLET_SPEED_PLAYER = 350
+BULLET_SPEED_ENEMY = 250
 SHOOT_INTERVAL_ENEMY = 2000  # milliseconds
 SHOOT_INTERVAL_PLAYER = 250
 BULLET_DAMAGE = 10
@@ -49,10 +49,10 @@ class Bullet:
         self.vel_y = math.sin(angle_rad) * self.speed
         self.rect = pygame.Rect(x, y, self.size, self.size)
 
-    def update(self):
+    def update(self, delta_time):
         # Update position based on velocity
-        self.x += self.vel_x
-        self.y += self.vel_y
+        self.x += self.vel_x * delta_time
+        self.y += self.vel_y * delta_time
         self.rect.x = self.x
         self.rect.y = self.y
     
@@ -114,22 +114,22 @@ class Entity:
         bullet_y = self.y + self.size // 2
         return Bullet(bullet_x, bullet_y, self.aim_angle, damage, self.is_friendly)
     
-    def update_position(self):
+    def update_position(self, delta_time):
         """Update position based on current action."""
         if self.action == 'left':
-            self.x -= self.speed
+            self.x -= self.speed * delta_time
             self.vx = -1
             self.vy = 0
         elif self.action == 'right':
-            self.x += self.speed
+            self.x += self.speed * delta_time
             self.vx = 1
             self.vy = 0
         elif self.action == 'up':
-            self.y -= self.speed
+            self.y -= self.speed * delta_time
             self.vx = 0
             self.vy = -1
         elif self.action == 'down':
-            self.y += self.speed
+            self.y += self.speed * delta_time
             self.vx = 0
             self.vy = 1
         else:
@@ -157,7 +157,7 @@ class Player(Entity):
         super().__init__(x, y, PLAYER_SPEED, PLAYER_HEALTH_MAX, True, SHOOT_INTERVAL_PLAYER)
         self.action = None
         self.is_env = is_env
-    def update(self, keys, bullets, action=""):
+    def update(self, delta_time, keys, bullets, action="", ):
         # Handle movement based on keys
         self.action = None
         if self.is_env:
@@ -172,7 +172,7 @@ class Player(Entity):
             elif keys[pygame.K_d] or keys[pygame.K_RIGHT]:
                 self.action = 'right'
         
-        self.update_position()
+        self.update_position(delta_time)
         
         # Check collisions
         bullets_to_remove = self.is_colliding(bullets)
@@ -195,7 +195,7 @@ class Enemy(Entity):
         self.last_action_time = 0
         self.action_interval = ENEMY_ACTION_INTERVAL
     
-    def update(self, player, current_time, bullets):
+    def update(self, delta_time, player, current_time, bullets):
         # Choose a new action every action_interval
         if current_time - self.last_action_time >= self.action_interval:
             # Randomly choose a direction
@@ -203,7 +203,7 @@ class Enemy(Entity):
             self.action = random.choice(actions)
             self.last_action_time = current_time
         
-        self.update_position()
+        self.update_position(delta_time)
         
         # Update aim angle to point at player
         dx = player.x + player.size // 2 - (self.x + self.size // 2)
@@ -226,7 +226,9 @@ def main():
     screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
     pygame.display.set_caption("Bullet Hell Environment")
     clock = pygame.time.Clock()
-    
+
+    previous_time = pygame.time.get_ticks()
+    current_time = previous_time
     # Initialize player at random position
     player = Player(
         random.randint(0, WORLD_WIDTH - ENTITY_SIZE),
@@ -242,13 +244,18 @@ def main():
     
     running = True
     while running:
+        # Get current time
+        current_time = pygame.time.get_ticks()
+        delta_time = (current_time-previous_time)/1000
+        previous_time = current_time
+        print(delta_time)
+
         # Handle events
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
         
-        # Get current time
-        current_time = pygame.time.get_ticks()
+
         
         # Handle player shooting
         keys = pygame.key.get_pressed()
@@ -266,7 +273,7 @@ def main():
             next_spawn_interval = random.randint(ENEMY_SPAWN_MIN, ENEMY_SPAWN_MAX)
         
         # Update player
-        bullets_to_remove = player.update(keys, bullets)
+        bullets_to_remove = player.update(delta_time, keys, bullets)
         for bullet in bullets_to_remove:
             if bullet in bullets:
                 bullets.remove(bullet)
@@ -279,7 +286,7 @@ def main():
                 bullets.append(enemy_bullet)
             
             # Enemy update
-            bullets_to_remove = enemy.update(player, current_time, bullets)
+            bullets_to_remove = enemy.update( delta_time, player, current_time, bullets,)
             for bullet in bullets_to_remove:
                 if bullet in bullets:
                     bullets.remove(bullet)
@@ -295,7 +302,7 @@ def main():
         
         # Update bullets
         for bullet in bullets[:]:
-            bullet.update()
+            bullet.update(delta_time)
             if bullet.is_off_screen():
                 bullets.remove(bullet)
         
@@ -324,6 +331,7 @@ def main():
         # Update display
         pygame.display.flip()
         clock.tick(60)
+
     
     pygame.quit()
 

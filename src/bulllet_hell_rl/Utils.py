@@ -1,4 +1,4 @@
-from BulletHellEnv import BulletHellEnv
+from envs.BulletHellEnv import BulletHellEnv
 import numpy as np
 
 def get_state_dim():

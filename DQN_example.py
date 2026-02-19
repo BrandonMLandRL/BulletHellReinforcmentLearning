@@ -65,7 +65,7 @@ class DeepQLearning:
         # state dimension
         self.stateDimension=4
         # action dimension
-        self.actionDimension=2
+        self.actionDimension=63
         # this is the maximum size of the replay buffer
         self.replayBufferSize=300
         # this is the size of the training batch that is randomly sampled from the replay buffer

@@ -20,4 +20,4 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [project.entry-points."gymnasium.envs"]
-BulletHell = "bullethell_env.register:register_envs"
+BulletHell = "bulllet_hell_rl.register:register_envs"

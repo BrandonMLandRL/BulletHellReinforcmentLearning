@@ -6,7 +6,7 @@ from gymnasium.error import DependencyNotInstalled
 
 from typing import Optional, Union
 
-from bullethell import * 
+from bulllet_hell_rl.bullethell import * 
 
 class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
     """
@@ -21,7 +21,7 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
     The actions available to the player include two simultaneous options: Move in direction and Fire at angle.
 
     Move in direction: (-1,0) : Left, (1,0) : Right, (0,1) : Up, (0,-1) Down, and (0,0) : No Movement. These are 5 choices so we can use a discrete space of 5
-    Fire at angle: 0 - 360 degrees.  
+    Fire at angle: 0, 90, 180, 360 degrees (4 choices, 90° steps).  
 
     ## Observation Space
 
@@ -97,15 +97,18 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
         self.player_previous_kill_count = 0
 
 
+        self.previous_time = 0
+        self.current_time = 0
+        
         self.max_steps = 10000
         self.step_count = 0
 
-        #Define the actionspace 
+        # Define the action space (5 moves × 36 aim angles = 180 combined actions)
         self.action_space = spaces.Dict({
             "move": spaces.Discrete(5),
             "fire_angle": spaces.Box(
                 low=0.0,
-                high=360.0,
+                high=270,
                 shape=(1,),
                 dtype=np.int16
             )
@@ -157,8 +160,13 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
         assert self.state is not None, "Call reset before using step method."
 
         # Get current time
-        current_time = pygame.time.get_ticks()
-        # print(f"ClockClockClockClockClockClock {current_time} ClockClockClockClockClockClock")
+        
+        current_time = self.current_time + (60)
+
+        self.current_time = current_time
+        delta_time = (current_time - self.previous_time) / 1000
+
+        self.previous_time = current_time
         
          # Spawn enemies at random intervals
         if current_time - self.last_enemy_spawn_time >= self.next_spawn_interval:
@@ -183,7 +191,7 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
         angle = action["fire_angle"][0]
 
         #Update player and apply action
-        bullets_to_remove = self.player.update(None, self.bullets, dir)
+        bullets_to_remove = self.player.update(delta_time, None, self.bullets, dir)
         #Set the player's aim angle
         self.player.aim_angle = angle
         for bullet in bullets_to_remove:
@@ -203,7 +211,7 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
                 self.bullets.append(enemy_bullet)
             
             # Enemy update
-            bullets_to_remove = enemy.update(self.player, current_time, self.bullets)
+            bullets_to_remove = enemy.update(delta_time, self.player, current_time, self.bullets)
             for bullet in bullets_to_remove:
                 if bullet in self.bullets:
                     self.bullets.remove(bullet)
@@ -214,7 +222,7 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
 
         #Update bullets 
         for bullet in self.bullets[:]:
-            bullet.update()
+            bullet.update(delta_time)
             if bullet.is_off_screen():
                 self.bullets.remove(bullet)
 
@@ -264,16 +272,24 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
                 "bullets" : self.bullet_obs,
         }
 
-
+        def is_player_in_center(x,y):
+            #Center is center of world
+            c_x = WORLD_WIDTH/2
+            c_y = WORLD_HEIGHT/2
+            #Check if player is in halfworld radius center
+            if x > c_x/2 and x < c_x/2 + c_x:
+                if y > c_y/2 and y < c_y/2 + c_y:
+                    return True
+            return False
         reward = 0
         #Supply positive reward for killing enemies
         for event in pygame.event.get():
             if event.type == ENEMY_KILLED:
                 self.player.kill_count += 1
         if self.player.kill_count > self.player_previous_kill_count: 
-            reward = 100
+            reward = 50
             self.player_previous_kill_count = self.player.kill_count
-            print(f"we dun got em {self.player.kill_count} ++++100")
+            # print(f"we dun got em {self.player.kill_count} ++++100")
             
 
 
@@ -281,11 +297,17 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
         elif self.player.health < self.player_previous_health:
             reward = -100
             self.player_previous_health = self.player.health
-            print("took damage -100")
+            # print("took damage -100")
         
+        #Supply small positive reward for playing near the world center
+        #Specifically if it is WorldWidth/4 radius from world center which is (worldwidth/2,worldheight/2)
+       
+        elif is_player_in_center(self.player.x, self.player.y):
+            reward = 10
         #Supply positive reward for not getting hit
         else:
             reward = 1
+        
 
 
         #Determine if the game is over 
@@ -301,19 +323,28 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
 
         self.step_count += 1
 
-        if self.step_count % 100 == 0:
-            for i in range(0,len(closest_bullets)):
-                print(f"Bullet obs: {closest_bullets[i].vel_x}, {closest_bullets[i].vel_y}, isfriendly: {closest_bullets[i].is_friendly}")
-            print(f"State {self.state}")
+        # if self.step_count % 100 == 0:
+        #     for i in range(0,len(closest_bullets)):
+        #         print(f"Bullet obs: {closest_bullets[i].vel_x}, {closest_bullets[i].vel_y}, isfriendly: {closest_bullets[i].is_friendly}")
+        #     print(f"State {self.state}")
         if self.render_mode == "human":
             self.render()
 
 
-        #Tick the game clock 
-        dt = pygame.time.Clock().tick(60)
-        info = f"MS since last tick : {dt}, current time: {current_time}, step count: {self.step_count}, state: {self.state}"
-        #Return  observations, reward, terminated or truncated, and info
-        return self.state, reward, terminated or truncated, {info}
+        # Tick the game clock 
+        # dt = pygame.time.Clock().tick(60)
+
+        # Build Gymnasium-style info dict
+        info = {
+            "dt": delta_time,
+            "current_time": current_time,
+            "step_count": self.step_count,
+            "player_health": self.player.health,
+            "kill_count": self.player.kill_count,
+        }
+
+        # Return observations, reward, terminated, truncated, and info
+        return self.state, reward, terminated, truncated, info
 
     def get_closest_entities(self, ref_x, ref_y, entity_list, num_of_entities):
         if len(entity_list) == 0:
@@ -327,12 +358,18 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
 
         return sorted_entities[:num_of_entities]
 
-    def reset(self, seed: Optional[int] = None,):
+    def reset(self, seed: Optional[int] = None, options: Optional[dict] = None):
+        """Reset the environment.
 
+        Gymnasium API requires reset() to return (observation, info).
+        """
         super().reset(seed=seed)
 
         #Lets set the initial state of the world here 
         self.step_count = 0
+
+        self.previous_time = 0
+        self.current_time = 0
 
         #Initialize player at random position
         self.player = Player(
@@ -376,14 +413,21 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
 
         bullets = np.zeros((self.N_bullets, 4), dtype=np.float32)
 
-        #Define state
+        # Define state
         self.state = {
-            "player"  : np.array((self.player.health/PLAYER_HEALTH_MAX, self.player.x/WORLD_WIDTH, self.player.y/WORLD_HEIGHT)),
-            "enemies" : self.enemies_obs,
-            "bullets" : bullets,
+            "player": np.array(
+                (
+                    self.player.health / PLAYER_HEALTH_MAX,
+                    self.player.x / WORLD_WIDTH,
+                    self.player.y / WORLD_HEIGHT,
+                )
+            ),
+            "enemies": self.enemies_obs,
+            "bullets": bullets,
         }
 
-        # print(self.state)
+        # Return initial observation and empty info dict (Gymnasium API)
+        return self.state, {}
 
     def render(self):
         self.screen = pygame.display.set_mode((self.screen_width, self.screen_height))
@@ -418,13 +462,13 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
 if __name__ == "__main__":
     env = BulletHellEnv()
     for i in range(0,10):
-        obs = env.reset()
+        obs, info = env.reset()
         while True:
             # obs_space = env.observation_space
             # print(obs_space)
             action = env.action_space.sample()
-            obs, rewards, done, info = env.step(action)
+            obs, rewards, terminated, truncated, info = env.step(action)
             env.render()
 
-            if done:
+            if terminated or truncated:
                 break
