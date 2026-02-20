@@ -51,7 +51,7 @@ env = BulletHellEnv(render_mode="human")
 dqn = DeepQLearning(env, gamma=0.99, epsilon=0.0, numberEpisodes=1, modelFileName="")
 # load trained weights into main network
 dqn.mainNetwork = keras.models.load_model(
-    "centerlower.h5", custom_objects={"my_loss_fn": DeepQLearning.my_loss_fn}
+    "centerreward.h5", custom_objects={"my_loss_fn": DeepQLearning.my_loss_fn}
 )
 
 # number of episodes to run (example evaluation)

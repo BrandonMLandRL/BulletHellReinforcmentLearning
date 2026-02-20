@@ -93,7 +93,7 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
         self.enemy_action_interval = 1500  # milliseconds
 
         #Comparatory values to detect changes in environment easily
-        self.player_previous_health = PLAYER_HEALTH_MAX
+        self.player_previous_health = PLAYER_HEALTH_MAX 
         self.player_previous_kill_count = 0
 
 
@@ -287,7 +287,7 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
             if event.type == ENEMY_KILLED:
                 self.player.kill_count += 1
         if self.player.kill_count > self.player_previous_kill_count: 
-            reward = 50
+            reward = 100
             self.player_previous_kill_count = self.player.kill_count
             # print(f"we dun got em {self.player.kill_count} ++++100")
             
@@ -295,7 +295,7 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
 
         #Supply negative reward for getting hit
         elif self.player.health < self.player_previous_health:
-            reward = -100
+            reward = -300
             self.player_previous_health = self.player.health
             # print("took damage -100")
         

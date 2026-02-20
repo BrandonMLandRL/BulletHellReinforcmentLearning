@@ -62,6 +62,8 @@ class DeepQLearning:
         self.modelFileName = modelFileName
         self.episodeIndex = 0
         
+        self.stepCount = 0
+        self.trainFreq = 4
         # state dimension
         self.stateDimension=63
         # action dimension (5 moves × 4 aim angles at 90° steps = 20)
@@ -70,6 +72,7 @@ class DeepQLearning:
         self.replayBufferSize=20000
         # this is the size of the training batch that is randomly sampled from the replay buffer
         self.batchReplayBufferSize=64
+        self.minReplayBufferSize = 2000
         
         # number of training episodes it takes to update the target network parameters
         # that is, every updateTargetNetworkPeriod we update the target network parameters
@@ -201,7 +204,7 @@ class DeepQLearning:
         
         # here we loop through the episodes
         for indexEpisode in range(self.numberEpisodes):
-            
+            self.stepCount = 0
             # list that stores rewards per episode - this is necessary for keeping track of convergence 
             rewardsEpisode=[]
             
@@ -218,7 +221,7 @@ class DeepQLearning:
             # this will loop until a terminal state is reached
             terminalState=False
             while not terminalState:
-                                      
+                             
                 # select an action on the basis of the current state, denoted by currentState
                 action = self.selectAction(currentState,indexEpisode)
                 
@@ -236,6 +239,8 @@ class DeepQLearning:
                 
                 # set the current state for the next step
                 currentState=nextState
+                
+                self.stepCount += 1
 
             
             print("Sum of rewards {}".format(np.sum(rewardsEpisode)))        
@@ -283,7 +288,7 @@ class DeepQLearning:
         else:
             # we return the index where Qvalues[state,:] has the max value
             # that is, since the index denotes an action, we select greedy actions
-            print("from learning")
+            # print("from learning")
             Qvalues=self.mainNetwork.predict(state.reshape(1,self.stateDimension), verbose=0)
           
             return np.random.choice(np.where(Qvalues[0,:]==np.max(Qvalues[0,:]))[0])
@@ -308,70 +313,71 @@ class DeepQLearning:
         # if the replay buffer has at least batchReplayBufferSize elements,
         # then train the model 
         # otherwise wait until the size of the elements exceeds batchReplayBufferSize
-        if (len(self.replayBuffer)>self.batchReplayBufferSize):
-            
-
-            # sample a batch from the replay buffer
-            randomSampleBatch=random.sample(self.replayBuffer, self.batchReplayBufferSize)
-            
-            # here we form current state batch 
-            # and next state batch
-            # they are used as inputs for prediction
-            currentStateBatch=np.zeros(shape=(self.batchReplayBufferSize,self.stateDimension))
-            nextStateBatch=np.zeros(shape=(self.batchReplayBufferSize,self.stateDimension))            
-            # this will enumerate the tuple entries of the randomSampleBatch
-            # index will loop through the number of tuples
-            for index,tupleS in enumerate(randomSampleBatch):
-                # first entry of the tuple is the current state
-                currentStateBatch[index,:]=tupleS[0]
-                # fourth entry of the tuple is the next state
-                nextStateBatch[index,:]=tupleS[3]
-            
-            # here, use the target network to predict Q-values 
-            QnextStateTargetNetwork=self.targetNetwork.predict(nextStateBatch, verbose=0)
-            # here, use the main network to predict Q-values 
-            QcurrentStateMainNetwork=self.mainNetwork.predict(currentStateBatch,verbose = 0)
-            
-            # now, we form batches for training
-            # input for training
-            inputNetwork=currentStateBatch
-            # output for training
-            outputNetwork=np.zeros(shape=(self.batchReplayBufferSize,self.actionDimension))
-            
-            # this list will contain the actions that are selected from the batch 
-            # this list is used in my_loss_fn to define the loss-function
-            self.actionsAppend=[]            
-            for index,(currentState,action,reward,nextState,terminated) in enumerate(randomSampleBatch):
+        # print(f"time to train: len of replay buffer {len(self.replayBuffer)}")
+        if (len(self.replayBuffer)>self.minReplayBufferSize):
+            if self.stepCount % self.trainFreq == 0:
+                # print("running long stuff")
+                # sample a batch from the replay buffer
+                randomSampleBatch=random.sample(self.replayBuffer, self.batchReplayBufferSize)
                 
-                # if the next state is the terminal state
-                if terminated:
-                    y=reward                  
-                # if the next state if not the terminal state    
-                else:
-                    y=reward+self.gamma*np.max(QnextStateTargetNetwork[index])
+                # here we form current state batch 
+                # and next state batch
+                # they are used as inputs for prediction
+                currentStateBatch=np.zeros(shape=(self.batchReplayBufferSize,self.stateDimension))
+                nextStateBatch=np.zeros(shape=(self.batchReplayBufferSize,self.stateDimension))            
+                # this will enumerate the tuple entries of the randomSampleBatch
+                # index will loop through the number of tuples
+                for index,tupleS in enumerate(randomSampleBatch):
+                    # first entry of the tuple is the current state
+                    currentStateBatch[index,:]=tupleS[0]
+                    # fourth entry of the tuple is the next state
+                    nextStateBatch[index,:]=tupleS[3]
                 
-                # this is necessary for defining the cost function
-                self.actionsAppend.append(action)
+                # here, use the target network to predict Q-values 
+                QnextStateTargetNetwork=self.targetNetwork.predict(nextStateBatch, verbose=0)
+                # here, use the main network to predict Q-values 
+                QcurrentStateMainNetwork=self.mainNetwork.predict(currentStateBatch,verbose = 0)
                 
-                # this actually does not matter since we do not use all the entries in the cost function
-                outputNetwork[index]=QcurrentStateMainNetwork[index]
-                # this is what matters
-                outputNetwork[index,action]=y
-            
-            # here, we train the network
-            self.mainNetwork.fit(inputNetwork,outputNetwork, batch_size = self.batchReplayBufferSize, verbose=0, epochs=1)     
-            
-            # after updateTargetNetworkPeriod training sessions, update the coefficients 
-            # of the target network
-            # increase the counter for training the target network
-            self.counterUpdateTargetNetwork+=1  
-            if (self.counterUpdateTargetNetwork>(self.updateTargetNetworkPeriod-1)):
-                # copy the weights to targetNetwork
-                self.targetNetwork.set_weights(self.mainNetwork.get_weights())        
-                print("Target network updated!")
-                print("Counter value {}".format(self.counterUpdateTargetNetwork))
-                # reset the counter
-                self.counterUpdateTargetNetwork=0
+                # now, we form batches for training
+                # input for training
+                inputNetwork=currentStateBatch
+                # output for training
+                outputNetwork=np.zeros(shape=(self.batchReplayBufferSize,self.actionDimension))
+                
+                # this list will contain the actions that are selected from the batch 
+                # this list is used in my_loss_fn to define the loss-function
+                self.actionsAppend=[]            
+                for index,(currentState,action,reward,nextState,terminated) in enumerate(randomSampleBatch):
+                    
+                    # if the next state is the terminal state
+                    if terminated:
+                        y=reward                  
+                    # if the next state if not the terminal state    
+                    else:
+                        y=reward+self.gamma*np.max(QnextStateTargetNetwork[index])
+                    
+                    # this is necessary for defining the cost function
+                    self.actionsAppend.append(action)
+                    
+                    # this actually does not matter since we do not use all the entries in the cost function
+                    outputNetwork[index]=QcurrentStateMainNetwork[index]
+                    # this is what matters
+                    outputNetwork[index,action]=y
+                
+                # here, we train the network
+                self.mainNetwork.fit(inputNetwork,outputNetwork, batch_size = self.batchReplayBufferSize, verbose=0, epochs=1)     
+                
+                # after updateTargetNetworkPeriod training sessions, update the coefficients 
+                # of the target network
+                # increase the counter for training the target network
+                self.counterUpdateTargetNetwork+=1  
+                if (self.counterUpdateTargetNetwork>(self.updateTargetNetworkPeriod-1)):
+                    # copy the weights to targetNetwork
+                    self.targetNetwork.set_weights(self.mainNetwork.get_weights())        
+                    print("Target network updated!")
+                    print("Counter value {}".format(self.counterUpdateTargetNetwork))
+                    # reset the counter
+                    self.counterUpdateTargetNetwork=0
     ###########################################################################
     #    END - function trainNetwork() 
     ###########################################################################     
