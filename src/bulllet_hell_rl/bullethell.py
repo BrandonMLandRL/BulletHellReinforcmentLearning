@@ -6,10 +6,10 @@ import random
 pygame.init()
 
 # Constants
-WORLD_WIDTH = 500
-WORLD_HEIGHT = 500
-SCREEN_WIDTH = 500
-SCREEN_HEIGHT = 500
+WORLD_WIDTH = 1000
+WORLD_HEIGHT = 1000
+SCREEN_WIDTH = 1000
+SCREEN_HEIGHT = 1000
 ENTITY_SIZE = 20
 BULLET_SIZE = 10
 PLAYER_SPEED = 200
@@ -33,6 +33,7 @@ BLUE = (0, 100, 255)
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
 RED = (255, 0, 0)
+GREEN = (0, 255, 50)
 
 class Bullet:
     def __init__(self, x, y, angle, damage, is_friendly):

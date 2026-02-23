@@ -2,6 +2,7 @@
 Multiplayer Bullet Hell client.
 Connects to server, receives welcome and state updates, sends actions, renders from server state.
 """
+import random
 import socket
 import threading
 from typing import Any
@@ -11,6 +12,7 @@ import pygame
 from .protocol import (
     MSG_ACTION,
     MSG_JOIN,
+    MSG_RESPAWN,
     MSG_UPDATE,
     MSG_WELCOME,
     move_and_angle_to_flat_action,
@@ -23,10 +25,13 @@ BLUE = (0, 100, 255)
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
 RED = (255, 0, 0)
-GREEN = (0, 255, 0)
+GREEN = (0, 255, 50)
 
-SCREEN_WIDTH = 500
-SCREEN_HEIGHT = 500
+from ..bullethell import (
+    SCREEN_HEIGHT,
+    SCREEN_WIDTH
+)
+
 
 # Default: no move (4), aim 0° -> flat 16
 DEFAULT_FLAT_ACTION = 4 * 4 + 0  # 16
@@ -115,16 +120,19 @@ def run_client(
 
     pygame.display.set_caption("Bullet Hell Multiplayer")
     client_id = welcome["client_id"]
-    world_width = welcome.get("world_width", 500)
-    world_height = welcome.get("world_height", 500)
+    world_width = welcome.get("world_width", 1000)
+    world_height = welcome.get("world_height", 1000)
     entity_size = welcome.get("entity_size", 20)
     bullet_size = 10  # default if not in welcome
 
     # Shared state from server (updated by recv thread)
     last_state: dict[str, Any] = {}
+    last_respawn: dict[str, Any] | None = None
     state_lock = threading.Lock()
+    respawn_show_until = 0.0  # time (seconds) when to stop showing "Respawned!"
 
     def recv_loop() -> None:
+        nonlocal last_respawn
         while True:
             msg = recv_message(sock)
             if msg is None:
@@ -133,6 +141,9 @@ def run_client(
                 with state_lock:
                     last_state.clear()
                     last_state.update(msg)
+            elif msg.get("type") == MSG_RESPAWN:
+                with state_lock:
+                    last_respawn = msg
         try:
             sock.close()
         except OSError:
@@ -152,8 +163,7 @@ def run_client(
         if not running:
             break
 
-        keys = pygame.key.get_pressed()
-        flat = _keys_to_flat_action(keys)
+        flat = random.randint(0, 19)
         now = pygame.time.get_ticks() / 1000.0
         if now - last_send_time >= send_interval:
             try:
@@ -174,7 +184,11 @@ def run_client(
             continue
 
         you = state.get("you", {})
-        print(f"game happening, {you})")
+        now_sec = pygame.time.get_ticks() / 1000.0
+        with state_lock:
+            if last_respawn is not None:
+                respawn_show_until = now_sec + 1.0
+                last_respawn = None
 
         players = state.get("players", [])
         enemies = state.get("enemies", [])
@@ -209,12 +223,22 @@ def run_client(
             bx = b.get("x", 0) - camera_x
             by = b.get("y", 0) - camera_y
             sz = b.get("size", bullet_size)
-            color = BLUE if b.get("is_friendly", True) else RED
+            # print(f"{b.get('owner_id')}  ?=?  {client_id}")
+            if b.get("owner_id") == client_id:
+                color = BLUE
+            elif b.get("is_friendly", False):
+                color = GREEN
+            else:
+                color = RED
             pygame.draw.circle(
                 screen, color,
                 (int(bx + sz / 2), int(by + sz / 2)),
                 max(1, sz // 2),
             )
+        if now_sec < respawn_show_until:
+            respawn_text = font.render("Respawned!", True, WHITE)
+            respawn_r = respawn_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+            screen.blit(respawn_text, respawn_r)
         pygame.display.flip()
         clock.tick(60)
 

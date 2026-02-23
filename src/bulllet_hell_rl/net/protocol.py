@@ -12,6 +12,7 @@ MSG_UPDATE = "update"
 MSG_ACTION = "action"
 MSG_JOIN = "join"
 MSG_REJECT = "reject"
+MSG_RESPAWN = "respawn"
 
 # Action space: 5 moves (0-4) x 4 aim angles (0, 90, 180, 270) = 20 flat actions
 MOVE_LOOKUP = {

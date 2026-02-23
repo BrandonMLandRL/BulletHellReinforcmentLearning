@@ -21,6 +21,7 @@ from ..bullethell import (
     ENEMY_SPAWN_MAX,
     ENEMY_SPAWN_MIN,
     ENTITY_SIZE,
+    PLAYER_HEALTH_MAX,
     WORLD_HEIGHT,
     WORLD_WIDTH,
     Bullet,
@@ -33,6 +34,7 @@ from .protocol import (
     MSG_ACTION,
     MSG_JOIN,
     MSG_REJECT,
+    MSG_RESPAWN,
     MSG_UPDATE,
     MSG_WELCOME,
     MOVE_LOOKUP,
@@ -113,6 +115,7 @@ def _build_bullet_state(bullet: Bullet) -> dict[str, Any]:
         "vel_y": bullet.vel_y,
         "is_friendly": bullet.is_friendly,
         "size": bullet.size,
+        "owner_id": getattr(bullet, "owner_id", None),
     }
 
 
@@ -230,6 +233,36 @@ def run_server(host: str = "0.0.0.0", port: int = 5555, secret: str | None = Non
 
             current_time += delta_time * 1000  # milliseconds for shoot timers
 
+            with clients_lock:
+                player_list = list(clients.values())
+            if not player_list:
+                time.sleep(delta_time)
+                continue
+
+            # Instant respawn: any dead player gets new position and full health this tick
+            for rec in player_list:
+                if rec.player.health <= 0:
+                    new_x = random.randint(0, WORLD_WIDTH - ENTITY_SIZE)
+                    new_y = random.randint(0, WORLD_HEIGHT - ENTITY_SIZE)
+                    rec.player.x = new_x
+                    rec.player.y = new_y
+                    rec.player.health = PLAYER_HEALTH_MAX
+                    rec.player.rect.x = new_x
+                    rec.player.rect.y = new_y
+                    try:
+                        send_message(rec.sock, {
+                            "type": MSG_RESPAWN,
+                            "client_id": rec.client_id,
+                            "x": new_x,
+                            "y": new_y,
+                            "health": PLAYER_HEALTH_MAX,
+                            "world_width": WORLD_WIDTH,
+                            "world_height": WORLD_HEIGHT,
+                            "entity_size": ENTITY_SIZE,
+                        })
+                    except OSError:
+                        rec.disconnected = True
+
             # Enemy spawn
             if current_time - last_enemy_spawn_time >= next_spawn_interval:
                 ex = random.randint(0, WORLD_WIDTH - ENTITY_SIZE)
@@ -237,12 +270,6 @@ def run_server(host: str = "0.0.0.0", port: int = 5555, secret: str | None = Non
                 enemies.append(Enemy(ex, ey))
                 last_enemy_spawn_time = current_time
                 next_spawn_interval = random.randint(ENEMY_SPAWN_MIN, ENEMY_SPAWN_MAX)
-
-            with clients_lock:
-                player_list = list(clients.values())
-            if not player_list:
-                time.sleep(delta_time)
-                continue
 
             # Apply player actions and shoot
             for rec in player_list:
@@ -257,6 +284,7 @@ def run_server(host: str = "0.0.0.0", port: int = 5555, secret: str | None = Non
                         bullets.remove(b)
                 pb = rec.player.shoot(current_time)
                 if pb:
+                    pb.owner_id = rec.client_id
                     bullets.append(pb)
 
             # Enemies: target nearest player

@@ -76,10 +76,10 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
     }
 
     def __init__(self, render_mode: str | None = "terminal"):
-        self.world_width = 500
-        self.world_height = 500
-        self.screen_width = 500
-        self.screen_height = 500
+        self.world_width = WORLD_WIDTH
+        self.world_height = WORLD_HEIGHT
+        self.screen_width = SCREEN_WIDTH
+        self.screen_height = SCREEN_HEIGHT
         self.entity_size = 20
         self.bullet_size = 10
         self.player_speed = 5
