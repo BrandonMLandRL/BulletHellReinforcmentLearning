@@ -5,7 +5,7 @@ def register_envs() -> None:
     """Register the Bullet Hell environment with Gymnasium."""
     register(
         id="BulletHell-v0",
-        entry_point="bulllet_hell_rl.envs.BulletHellEnv:BulletHellEnv",
+        entry_point="bullet_hell_rl.envs.BulletHellEnv:BulletHellEnv",
         max_episode_steps=1000,
     )
 

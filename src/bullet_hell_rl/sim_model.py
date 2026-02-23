@@ -40,9 +40,9 @@ import gymnasium as gym
 # numpy
 import numpy as np
 
-from bulllet_hell_rl.DQN.DQNLegacy import DeepQLearning
+from bullet_hell_rl.DQN.DQNLegacy import DeepQLearning
 
-from bulllet_hell_rl.envs.BulletHellEnv import BulletHellEnv
+from bullet_hell_rl.envs.BulletHellEnv import BulletHellEnv
 
 # create the environment
 env = BulletHellEnv(render_mode="human")

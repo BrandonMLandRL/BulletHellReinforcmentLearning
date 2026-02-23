@@ -7,7 +7,7 @@ from pathlib import Path
 # Ensure src is on path when run from project root
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
-from bulllet_hell_rl.net import run_server
+from bullet_hell_rl.net import run_server
 
 
 def main() -> None:

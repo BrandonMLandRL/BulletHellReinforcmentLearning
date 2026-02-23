@@ -148,6 +148,7 @@ def run_server(host: str = "0.0.0.0", port: int = 5555, secret: str | None = Non
     current_time = 0
     TICK_RATE = 60
     delta_time = 1.0 / TICK_RATE
+    tick_count = 0
 
     # Spawn initial enemies (same as env reset: 3 enemies)
     for _ in range(3):
@@ -232,6 +233,7 @@ def run_server(host: str = "0.0.0.0", port: int = 5555, secret: str | None = Non
                     del clients[cid]
 
             current_time += delta_time * 1000  # milliseconds for shoot timers
+            tick_count += 1 #Update tick counter 
 
             with clients_lock:
                 player_list = list(clients.values())
@@ -327,6 +329,7 @@ def run_server(host: str = "0.0.0.0", port: int = 5555, secret: str | None = Non
                     "players": other_players,
                     "enemies": [_build_enemy_state(e) for e in enemies],
                     "bullets": [_build_bullet_state(b) for b in bullets],
+                    "tick": tick_count,
                 }
                 try:
                     send_message(rec.sock, payload)

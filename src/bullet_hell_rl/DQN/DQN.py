@@ -6,7 +6,7 @@
 
 #First we will collect the 
 
-from src.bulllet_hell_rl.Utils import get_action_dim, get_state_dim
+from src.bullet_hell_rl.Utils import get_action_dim, get_state_dim
 
 
 import tensorflow as tf

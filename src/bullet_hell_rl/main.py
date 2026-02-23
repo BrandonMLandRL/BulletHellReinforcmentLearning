@@ -1,4 +1,4 @@
-from bulllet_hell_rl.envs.BulletHellEnv import BulletHellEnv
+from bullet_hell_rl.envs.BulletHellEnv import BulletHellEnv
 import gymnasium as gym
 
 

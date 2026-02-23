@@ -6,7 +6,7 @@ from gymnasium.error import DependencyNotInstalled
 
 from typing import Optional, Union
 
-from bulllet_hell_rl.bullethell import * 
+from bullet_hell_rl.bullethell import * 
 
 class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
     """
