@@ -7,7 +7,7 @@ from .protocol import (
     move_and_angle_to_flat_action,
 )
 from .server import run_server
-
+from .actor import run_actor
 __all__ = [
     "run_client",
     "run_server",

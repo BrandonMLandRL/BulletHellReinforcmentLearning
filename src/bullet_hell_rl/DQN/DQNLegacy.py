@@ -40,7 +40,7 @@ from tensorflow.keras.losses import MSE as mean_squared_error
 import keras
 
 
-class DeepQLearning:
+class  DeepQLearning:
     
     ###########################################################################
     #   START - __init__ function
@@ -200,8 +200,6 @@ class DeepQLearning:
     ###########################################################################
 
     def trainingEpisodes(self):
-    
-        
         # here we loop through the episodes
         for indexEpisode in range(self.numberEpisodes):
             self.stepCount = 0

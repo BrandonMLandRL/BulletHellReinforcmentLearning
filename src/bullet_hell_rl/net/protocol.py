@@ -14,6 +14,13 @@ MSG_JOIN = "join"
 MSG_REJECT = "reject"
 MSG_RESPAWN = "respawn"
 
+
+## Actor - Learner TCP Packet Definitions 
+MSG_EXPERIENCE_TUPLE = "experience_tuple"
+MSG_WEIGHTS_READY = "weights_ready"
+MSG_WEIGHTS_READY_ACK = "weights_ack"
+MSG_LEARNER_INIT = "init"
+
 # Action space: 5 moves (0-4) x 4 aim angles (0, 90, 180, 270) = 20 flat actions
 MOVE_LOOKUP = {
     0: "left",
@@ -90,3 +97,5 @@ def _recv_exact(sock, n: int) -> bytes | None:
         buf.append(chunk)
         n -= len(chunk)
     return b"".join(buf)
+
+ 
