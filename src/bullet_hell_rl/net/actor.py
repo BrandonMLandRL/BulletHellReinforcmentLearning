@@ -19,8 +19,7 @@ from .protocol import (
     recv_message,
     send_message,
     MSG_EXPERIENCE_TUPLE,
-    MSG_WEIGHTS_READY,
-    MSG_WEIGHTS_READY_ACK
+    MSG_WEIGHTS_READY_ACK,
 )
 
 # Colors (match bullethell)
@@ -39,14 +38,13 @@ from ..bullethell import (
 # Default: no move (4), aim 0° -> flat 16
 DEFAULT_FLAT_ACTION = 4 * 4 + 0  # 16
 
-from ..DQN.ActorComponent import Actor
+from ..DQN.ActorServerComponent import Actor
 
 
 def initialize_prediction_network():
     return Actor(on_message_callback=None)
 
-#Use poll_message(0) for a nonblocking queue check - we will be looking for the message MSG_WEIGHTS_READY
-#Should run this function and then if the queue has message weights ready 
+# Use poll_message for a nonblocking queue check (e.g. MSG_WEIGHTS_READY from learner broadcasts).
 def poll_message(actor, timeout=None):
     """Grab next message from learner recv queue, or None if empty / timeout."""
     try:
@@ -90,15 +88,11 @@ def run_actor(
 
     dqn_actor = initialize_prediction_network()
 
-    # Learner handshake: after welcome, learner sends MSG_WEIGHTS_READY; we ACK once.
-    msg = poll_message(dqn_actor, timeout=5.0)
-    if msg is not None and msg.get("type") == MSG_WEIGHTS_READY:
-        print(f"Actor: received MSG_WEIGHTS_READY {msg}")
+    # MSG_LEARNER_INIT is consumed synchronously in Actor.__init__; ACK so learner can treat us as ready.
+    if dqn_actor.learner_socket is not None:
         send_weights_ack(dqn_actor)
-    elif msg is not None:
-        print(f"Actor: unexpected first message from learner (expected MSG_WEIGHTS_READY): {msg}")
     else:
-        print("Actor: timed out waiting for MSG_WEIGHTS_READY (is the learner running on 127.0.0.1:5556?)")
+        print("Actor: no learner connection (is the learner running on 127.0.0.1:5556?)")
 
     print("establishing pygame")
     pygame.init()

@@ -79,11 +79,17 @@ class Actor:
             self.learner_socket = socket.create_connection(("127.0.0.1", 5556), timeout=2.0)
             print("Connected to Learner on 127.0.0.1:5556")
             self.learner_socket.settimeout(None)
-            hello = protocol.recv_message(self.learner_socket)
-            if hello and hello.get("type") == protocol.MSG_WELCOME:
-                print(f"Learner says: {hello.get('message', '')}")
-            # Start background threads once connection is ready
-            self._start_background_threads()
+            init_msg = protocol.recv_message(self.learner_socket)
+            if init_msg and init_msg.get("type") == protocol.MSG_LEARNER_INIT:
+                print(f"Learner init: {init_msg.get('message', '')}")
+                self._start_background_threads()
+            else:
+                try:
+                    self.learner_socket.close()
+                except OSError:
+                    pass
+                self.learner_socket = None
+                print("Failed learner handshake (expected MSG_LEARNER_INIT)")
         except OSError:
             self.learner_socket = None
             print("Failed to connect to TCP Learner")
