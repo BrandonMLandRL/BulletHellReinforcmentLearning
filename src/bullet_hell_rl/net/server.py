@@ -103,6 +103,7 @@ def _build_player_state(player: Player, client_id: int) -> dict[str, Any]:
         "x": player.x,
         "y": player.y,
         "health": player.health,
+        "kill_count": player.kill_count,
         "size": player.size,
     }
 
@@ -120,7 +121,13 @@ def _build_bullet_state(bullet: Bullet) -> dict[str, Any]:
 
 
 def _build_enemy_state(enemy: Enemy) -> dict[str, Any]:
-    return {"x": enemy.x, "y": enemy.y, "size": enemy.size}
+    return {
+        "x": enemy.x,
+        "y": enemy.y,
+        "vel_x": enemy.vx,
+        "vel_y": enemy.vy,
+        "size": enemy.size,
+        }
 
 
 def run_server(host: str = "0.0.0.0", port: int = 5555, secret: str | None = None) -> None:
@@ -298,13 +305,20 @@ def run_server(host: str = "0.0.0.0", port: int = 5555, secret: str | None = Non
                 enemy_bullet = enemy.shoot(current_time)
                 if enemy_bullet:
                     bullets.append(enemy_bullet)
-                bullets_to_remove = enemy.update(
-                    delta_time, target, current_time, bullets
+                bullets_to_remove, hit_info = enemy.update(
+                    delta_time, target, current_time, bullets, return_hit_info=True
                 )
                 for b in bullets_to_remove:
                     if b in bullets:
                         bullets.remove(b)
                 if enemy.health <= 0:
+                    killer_owner_id = hit_info.get("killer_owner_id")
+                    if killer_owner_id is not None:
+                        for killer in player_list:
+                            if killer.client_id == killer_owner_id:
+                                killer.player.kill_count += 1
+                                print(f"Player: {killer_owner_id} has new kill_count of {killer.player.kill_count}")
+                                break
                     enemies.remove(enemy)
 
             # Bullets

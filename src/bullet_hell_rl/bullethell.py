@@ -87,24 +87,38 @@ class Entity:
 
         self.kill_count = 0 #for player, to track kills in env for rewards
     
-    def is_colliding(self, bullets):
+    def is_colliding(self, bullets, return_hit_info=False):
         """Check if the entity is colliding with any bullets this update.
         If colliding, check if the bullet has the correct friendly relationship to cause damage.
-        Returns list of bullets that should be destroyed."""
+        Returns list of bullets that should be destroyed.
+        If return_hit_info=True, also returns metadata for kill attribution."""
         bullets_to_remove = []
+        killed = False
+        killer_owner_id = None
         for bullet in bullets:
             if self.rect.colliderect(bullet.rect):
                 # A friendly bullet can hit the enemy. Unfriendly bullets can hit the player.
                 if (self.is_friendly and not bullet.is_friendly) or (not self.is_friendly and bullet.is_friendly):
                     # Take damage
                     self.health -= bullet.damage
-                    if not self.is_friendly:
-                        print("hit enemy")
-                        #Post an enemy death event      
-                        pygame.event.post(pygame.event.Event(ENEMY_KILLED))                  
-                    else:
+                    if self.is_friendly:
                         print("hit the player")
+                    else:
+                        print("hit enemy")
+                        if self.health <= 0 and not killed:
+                            killed = True
+                            # Server can tag bullets with owner_id; local/env bullets may not have it.
+                            killer_owner_id = getattr(bullet, "owner_id", None)
+                            pygame.event.post(pygame.event.Event(ENEMY_KILLED))
                     bullets_to_remove.append(bullet)
+                    if killed:
+                        # Enemy is dead; stop processing additional hits this tick.
+                        break
+        if return_hit_info:
+            return bullets_to_remove, {
+                "killed": killed,
+                "killer_owner_id": killer_owner_id,
+            }
         return bullets_to_remove
     
     def spawn_bullet(self, damage):
@@ -196,7 +210,7 @@ class Enemy(Entity):
         self.last_action_time = 0
         self.action_interval = ENEMY_ACTION_INTERVAL
     
-    def update(self, delta_time, player, current_time, bullets):
+    def update(self, delta_time, player, current_time, bullets, return_hit_info=False):
         # Choose a new action every action_interval
         if current_time - self.last_action_time >= self.action_interval:
             # Randomly choose a direction
@@ -212,7 +226,7 @@ class Enemy(Entity):
         self.aim_angle = math.degrees(math.atan2(dy, dx))
         
         # Check collisions
-        bullets_to_remove = self.is_colliding(bullets)
+        bullets_to_remove = self.is_colliding(bullets, return_hit_info=return_hit_info)
         return bullets_to_remove
     
     def shoot(self, current_time):
