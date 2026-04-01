@@ -267,7 +267,7 @@ class BulletHellEnv(gym.Env[np.ndarray, np.ndarray]):
  
 
         self.state = {
-                "player"  : np.array((self.player.health/PLAYER_HEALTH_MAX, self.player.x/WORLD_WIDTH, self.player.y/WORLD_WIDTH)),
+                "player"  : np.array((self.player.health/PLAYER_HEALTH_MAX, self.player.x/WORLD_WIDTH, self.player.y/WORLD_HEIGHT)),
                 "enemies" : self.enemies_obs,
                 "bullets" : self.bullet_obs,
         }
