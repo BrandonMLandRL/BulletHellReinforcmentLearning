@@ -43,6 +43,11 @@ from ..DQN.actor_learner_rl_bridge import (
     build_obs_from_update,
     compute_reward_and_done,
 )
+from ..DQN.actor_learner_metrics import (
+    actor_metrics_log_interval,
+    log_metrics_record,
+    log_rl_config_snapshot,
+)
 
 
 def initialize_prediction_network(
@@ -118,6 +123,10 @@ def run_actor(
     dqn_actor = initialize_prediction_network(
         weights_path, bootstrap_weights_path, rl_config=cfg
     )
+    try:
+        log_rl_config_snapshot("actor", cfg)
+    except Exception as e:
+        print(f"Actor: metrics config log failed: {e}")
 
     if dqn_actor.learner_socket is not None:
         dqn_actor.send_actor_ready()
@@ -213,6 +222,9 @@ def run_actor(
     prev_obs = None
     prev_action = DEFAULT_FLAT_ACTION
     rl_step = 0
+    actor_r_sum = 0.0
+    actor_r_n = 0
+    actor_metric_every = actor_metrics_log_interval()
 
     while running:
         _drain_learner_messages(dqn_actor, weights_path)
@@ -262,9 +274,38 @@ def run_actor(
                 meta,
             )
             rl_step += 1
+            actor_r_sum += float(reward)
+            actor_r_n += 1
 
         selection_index = max(1, rl_step // cfg.selection_index_divisor)
         flat = int(dqn_actor.selectAction(curr_obs, selection_index))
+
+        if rl_step > 0 and rl_step % actor_metric_every == 0:
+            branches = dqn_actor.consume_branch_counts_window()
+            total_b = sum(branches.values()) or 1
+            mean_rw = (actor_r_sum / actor_r_n) if actor_r_n else 0.0
+            try:
+                log_metrics_record(
+                    "actor",
+                    "step_sample",
+                    {
+                        "rl_step": rl_step,
+                        "selection_index": selection_index,
+                        "epsilon": float(dqn_actor.epsilon),
+                        "learner_connected": dqn_actor.learner_socket is not None,
+                        "branch_counts": branches,
+                        "frac_greedy": branches.get("greedy", 0) / total_b,
+                        "frac_random": branches.get("random", 0) / total_b,
+                        "frac_warmup": branches.get("warmup", 0) / total_b,
+                        "mean_reward_window": mean_rw,
+                        "reward_count_window": actor_r_n,
+                        "last_action_branch": dqn_actor._last_action_branch,
+                    },
+                )
+            except Exception as e:
+                print(f"Actor: metrics log failed: {e}")
+            actor_r_sum = 0.0
+            actor_r_n = 0
 
         if now - last_send_time >= send_interval:
             try:

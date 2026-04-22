@@ -20,6 +20,10 @@ from bullet_hell_rl.DQN.actor_learner_rl_config import (
 )
 from bullet_hell_rl.DQN.DQNLegacy import DeepQLearning
 from bullet_hell_rl.DQN.actor_learner_rl_bridge import validate_experience_shape
+from bullet_hell_rl.DQN.actor_learner_metrics import (
+    log_metrics_record,
+    log_rl_config_snapshot,
+)
 from bullet_hell_rl.net.protocol import (
     MSG_ACTOR_READY,
     MSG_EXPERIENCE_TUPLE,
@@ -94,6 +98,10 @@ class Learner:
         self._experience_recv_count = 0
         self._weights_publish_every = cfg.weights_publish_every
         self._weights_publish_train_counter = 0
+        self._metrics_last_train_t = time.perf_counter()
+        self._metrics_exp_at_last_train = 0
+        self._metrics_reward_sum = 0.0
+        self._metrics_reward_n = 0
 
         self.dqn = DeepQLearning(
             _DummyEnv(),
@@ -104,6 +112,10 @@ class Learner:
             rl_config=cfg,
         )
         self._bootstrap_or_load_weights()
+        try:
+            log_rl_config_snapshot("learner", cfg)
+        except Exception as e:
+            print(f"Learner: metrics config log failed: {e}", flush=True)
 
     def _bootstrap_or_load_weights(self) -> None:
         load_path = None
@@ -243,8 +255,42 @@ class Learner:
         self.dqn.replayBuffer.append((s, action, reward, ns, done))
         self.dqn.stepCount += 1
         self._experience_recv_count += 1
-        trained = self.dqn.trainNetwork()
+        self._metrics_reward_sum += reward
+        self._metrics_reward_n += 1
+        trained, batch_loss = self.dqn.trainNetwork()
         if trained:
+            now_t = time.perf_counter()
+            dt = now_t - self._metrics_last_train_t
+            d_exp = self._experience_recv_count - self._metrics_exp_at_last_train
+            thr = (d_exp / dt) if dt > 0 else 0.0
+            mean_rw = (
+                (self._metrics_reward_sum / self._metrics_reward_n)
+                if self._metrics_reward_n
+                else 0.0
+            )
+            try:
+                log_metrics_record(
+                    "learner",
+                    "train_step",
+                    {
+                        "loss": batch_loss,
+                        "step_count": self.dqn.stepCount,
+                        "replay_size": len(self.dqn.replayBuffer),
+                        "min_replay_size": self.dqn.minReplayBufferSize,
+                        "experience_recv_total": self._experience_recv_count,
+                        "experiences_since_last_train": d_exp,
+                        "experience_throughput_per_sec": thr,
+                        "mean_reward_window": mean_rw,
+                        "reward_count_window": self._metrics_reward_n,
+                        "target_updates_pending_counter": self.dqn.counterUpdateTargetNetwork,
+                    },
+                )
+            except Exception as e:
+                print(f"Learner: metrics log failed: {e}", flush=True)
+            self._metrics_reward_sum = 0.0
+            self._metrics_reward_n = 0
+            self._metrics_last_train_t = now_t
+            self._metrics_exp_at_last_train = self._experience_recv_count
             print(
                 f"[{_log_ts()}] Learner: trained network "
                 f"(step_count={self.dqn.stepCount}, replay_size={len(self.dqn.replayBuffer)})",

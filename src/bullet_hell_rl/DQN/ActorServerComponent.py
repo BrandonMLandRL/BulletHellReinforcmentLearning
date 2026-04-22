@@ -97,6 +97,12 @@ class Actor:
         self._recv_thread = None
         self._send_thread = None
         self._on_message = on_message_callback  # optional callback parent can pass in
+        self._last_action_branch: str | None = None
+        self._branch_counts_window: dict[str, int] = {
+            "warmup": 0,
+            "random": 0,
+            "greedy": 0,
+        }
         # Connect to learner
         try:
             self.learner_socket = socket.create_connection(("127.0.0.1", 5556), timeout=2.0)
@@ -334,9 +340,18 @@ class Actor:
     # index - index of the current episode
     def selectAction(self,state,index):
         cfg = self._rl_config
+
+        def _record(branch: str, action: int) -> int:
+            self._last_action_branch = branch
+            self._branch_counts_window[branch] = self._branch_counts_window.get(branch, 0) + 1
+            return action
+
         if index < cfg.explore_pure_random_until_selection_index:
-            return np.random.choice(self.actionDimension)   
-            
+            return _record(
+                "warmup",
+                int(np.random.choice(self.actionDimension)),
+            )
+
         # Returns a random real number in the half-open interval [0.0, 1.0)
         # this number is used for the epsilon greedy approach
         randomNumber=np.random.random()
@@ -347,7 +362,7 @@ class Actor:
         # if this condition is satisfied, we are exploring, that is, we select random actions
         if randomNumber < self.epsilon:
             # returns a random action selected from: 0,1,...,actionNumber-1
-            return np.random.choice(self.actionDimension)            
+            return _record("random", int(np.random.choice(self.actionDimension)))
         # otherwise, we are selecting greedy actions
         else:
             # we return the index where Qvalues[state,:] has the max value
@@ -355,7 +370,10 @@ class Actor:
             # print("from learning")
             Qvalues=self.mainNetwork.predict(state.reshape(1,self.stateDimension), verbose=0)
           
-            return np.random.choice(np.where(Qvalues[0,:]==np.max(Qvalues[0,:]))[0])
+            return _record(
+                "greedy",
+                int(np.random.choice(np.where(Qvalues[0,:]==np.max(Qvalues[0,:]))[0])),
+            )
             # here we need to return the minimum index since it can happen
             # that there are several identical maximal entries, for example 
             # import numpy as np
@@ -367,20 +385,11 @@ class Actor:
     ###########################################################################
     #    END - function selecting an action: epsilon-greedy approach
     ###########################################################################
-    
 
-            
-            
-            
-            
-            
-            
-            
-            
-        
-        
-        
-        
-        
-        
+    def consume_branch_counts_window(self) -> dict[str, int]:
+        """Return action-branch counts since last consume and reset the window."""
+        out = dict(self._branch_counts_window)
+        self._branch_counts_window = {"warmup": 0, "random": 0, "greedy": 0}
+        return out
+
     

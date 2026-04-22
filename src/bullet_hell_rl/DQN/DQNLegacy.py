@@ -342,7 +342,8 @@ class  DeepQLearning:
     def trainNetwork(self):
         """
         Train one step if the replay buffer is large enough and stepCount matches trainFreq.
-        Returns True if a fit() was performed.
+        Returns (trained, loss): trained is True if a fit() was performed; loss is the
+        batch loss from that fit, else None.
         """
         # if the replay buffer has at least batchReplayBufferSize elements,
         # then train the model 
@@ -399,8 +400,17 @@ class  DeepQLearning:
                     outputNetwork[index,action]=y
                 
                 # here, we train the network
-                self.mainNetwork.fit(inputNetwork,outputNetwork, batch_size = self.batchReplayBufferSize, verbose=0, epochs=1)     
-                
+                hist = self.mainNetwork.fit(
+                    inputNetwork,
+                    outputNetwork,
+                    batch_size=self.batchReplayBufferSize,
+                    verbose=0,
+                    epochs=1,
+                )
+                loss_val = None
+                if hist.history.get("loss"):
+                    loss_val = float(hist.history["loss"][-1])
+
                 # after updateTargetNetworkPeriod training sessions, update the coefficients 
                 # of the target network
                 # increase the counter for training the target network
@@ -412,8 +422,8 @@ class  DeepQLearning:
                     print("Counter value {}".format(self.counterUpdateTargetNetwork))
                     # reset the counter
                     self.counterUpdateTargetNetwork=0
-                return True
-        return False
+                return True, loss_val
+        return False, None
     ###########################################################################
     #    END - function trainNetwork() 
     ###########################################################################     
