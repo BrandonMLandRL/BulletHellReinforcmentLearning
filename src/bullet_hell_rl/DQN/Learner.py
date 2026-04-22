@@ -14,6 +14,10 @@ from bullet_hell_rl.DQN.LearnerServerComponent import (
     PORT,
     LearnerServerComponent,
 )
+from bullet_hell_rl.DQN.actor_learner_rl_config import (
+    ACTOR_LEARNER_RL_CONFIG,
+    ActorLearnerRLConfig,
+)
 from bullet_hell_rl.DQN.DQNLegacy import DeepQLearning
 from bullet_hell_rl.DQN.actor_learner_rl_bridge import validate_experience_shape
 from bullet_hell_rl.net.protocol import (
@@ -66,14 +70,18 @@ class Learner:
         self,
         lsc: LearnerServerComponent,
         weights_path: str,
-        gamma: float = 0.99,
+        gamma: float | None = None,
         bootstrap_weights_path: str | None = None,
+        rl_config: ActorLearnerRLConfig | None = None,
     ):
         self.lsc = lsc
         self.weights_path = os.path.abspath(weights_path)
         self.bootstrap_weights_path = (
             os.path.abspath(bootstrap_weights_path) if bootstrap_weights_path else None
         )
+        cfg = rl_config or ACTOR_LEARNER_RL_CONFIG
+        if gamma is None:
+            gamma = cfg.gamma
         self.stop_event = threading.Event()
         self._ack_lock = threading.Lock()
         self._can_broadcast = True
@@ -83,9 +91,10 @@ class Learner:
         self.dqn = DeepQLearning(
             _DummyEnv(),
             gamma=gamma,
-            epsilon=1.0,
-            numberEpisodes=10**9,
+            epsilon=cfg.epsilon_start,
+            numberEpisodes=cfg.number_episodes,
             modelFileName=self.weights_path,
+            rl_config=cfg,
         )
         self._bootstrap_or_load_weights()
 
@@ -206,6 +215,7 @@ def main(
     port: int = PORT,
     weights_path: str | None = None,
     bootstrap_weights_path: str | None = None,
+    rl_config: ActorLearnerRLConfig | None = None,
 ) -> None:
     weights_path = weights_path or os.environ.get("SHARED_WEIGHTS", "shared_weights.h5")
     bootstrap = bootstrap_weights_path or os.environ.get("BOOTSTRAP_WEIGHTS")
@@ -218,6 +228,7 @@ def main(
         lsc,
         weights_path=weights_path,
         bootstrap_weights_path=bootstrap,
+        rl_config=rl_config,
     )
     try:
         learner.run_training_loop()

@@ -1,5 +1,8 @@
 """
-Shared RL bridge: map multiplayer server JSON updates to DQN observations (63-dim, legacy layout).
+Shared RL bridge: map multiplayer server JSON updates to DQN observations.
+
+Vector length STATE_DIM comes from actor_learner_rl_config; if you change state_dimension
+there, update build_obs_from_update (and server fields) so the layout still matches.
 """
 from __future__ import annotations
 
@@ -14,10 +17,10 @@ from bullet_hell_rl.bullethell import (
     WORLD_HEIGHT,
     WORLD_WIDTH,
 )
+from bullet_hell_rl.DQN.actor_learner_rl_config import ACTOR_LEARNER_RL_CONFIG
 
-# Canonical DQN dimensions (must match DQNLegacy / BulletHellEnv).
-STATE_DIM = 63
-ACTION_DIM = 20
+STATE_DIM = ACTOR_LEARNER_RL_CONFIG.state_dimension
+ACTION_DIM = ACTOR_LEARNER_RL_CONFIG.action_dimension
 N_ENEMIES = 5
 N_BULLETS = 10
 PLAYER_FEATURES = 3

@@ -39,6 +39,8 @@ from tensorflow import gather_nd
 from tensorflow.keras.losses import MSE as mean_squared_error 
 import keras
 
+from bullet_hell_rl.DQN.actor_learner_rl_config import ActorLearnerRLConfig
+
 
 class  DeepQLearning:
     
@@ -52,7 +54,15 @@ class  DeepQLearning:
     # numberEpisodes - total number of simulation episodes
     
             
-    def __init__(self,env,gamma,epsilon,numberEpisodes,modelFileName):
+    def __init__(
+        self,
+        env,
+        gamma,
+        epsilon,
+        numberEpisodes,
+        modelFileName,
+        rl_config: ActorLearnerRLConfig | None = None,
+    ):
         
         
         self.env=env
@@ -61,22 +71,29 @@ class  DeepQLearning:
         self.numberEpisodes=numberEpisodes
         self.modelFileName = modelFileName
         self.episodeIndex = 0
+        self._rl_config = rl_config
         
         self.stepCount = 0
-        self.trainFreq = 4
-        # state dimension
-        self.stateDimension=63
-        # action dimension (5 moves × 4 aim angles at 90° steps = 20)
-        self.actionDimension=20
-        # this is the maximum size of the replay buffer
-        self.replayBufferSize=20000
-        # this is the size of the training batch that is randomly sampled from the replay buffer
-        self.batchReplayBufferSize=64
-        self.minReplayBufferSize = 2000
-        
-        # number of training episodes it takes to update the target network parameters
-        # that is, every updateTargetNetworkPeriod we update the target network parameters
-        self.updateTargetNetworkPeriod=1000
+        if rl_config is not None:
+            self.trainFreq = rl_config.train_freq
+            self.stateDimension = rl_config.state_dimension
+            self.actionDimension = rl_config.action_dimension
+            self.replayBufferSize = rl_config.replay_buffer_size
+            self.batchReplayBufferSize = rl_config.batch_size
+            self.minReplayBufferSize = rl_config.min_replay_size
+            self.updateTargetNetworkPeriod = rl_config.target_network_period
+            self._hidden_units = rl_config.hidden_units
+            self._hidden_activation = rl_config.hidden_activation
+        else:
+            self.trainFreq = 4
+            self.stateDimension = 63
+            self.actionDimension = 20
+            self.replayBufferSize = 20000
+            self.batchReplayBufferSize = 64
+            self.minReplayBufferSize = 2000
+            self.updateTargetNetworkPeriod = 1000
+            self._hidden_units = (128, 56)
+            self._hidden_activation = "relu"
         
         # this is the counter for updating the target network 
         # if this counter exceeds (updateTargetNetworkPeriod-1) we update the network 
@@ -154,12 +171,22 @@ class  DeepQLearning:
     
     # create a neural network
     def createNetwork(self):
-        model=Sequential()
-        model.add(Dense(128,input_dim=self.stateDimension,activation='relu'))
-        model.add(Dense(56,activation='relu'))
-        model.add(Dense(self.actionDimension,activation='linear'))
-        # compile the network with the custom loss defined in my_loss_fn
-        model.compile(optimizer = RMSprop(), loss = self.my_loss_fn, metrics = ['accuracy'])
+        model = Sequential()
+        first = True
+        for units in self._hidden_units:
+            if first:
+                model.add(
+                    Dense(
+                        units,
+                        input_dim=self.stateDimension,
+                        activation=self._hidden_activation,
+                    )
+                )
+                first = False
+            else:
+                model.add(Dense(units, activation=self._hidden_activation))
+        model.add(Dense(self.actionDimension, activation="linear"))
+        model.compile(optimizer=RMSprop(), loss=self.my_loss_fn, metrics=["accuracy"])
         return model
     ###########################################################################
     #   END - function createNetwork()
@@ -263,19 +290,25 @@ class  DeepQLearning:
     # index - index of the current episode
     def selectAction(self,state,index):
         import numpy as np
-        
-        # first index episodes we select completely random actions to have enough exploration
-        # change this
-        if index<1:
+
+        if self._rl_config is not None:
+            until = self._rl_config.explore_pure_random_until_selection_index
+            decay_after = self._rl_config.epsilon_decay_after_selection_index
+            decay_mult = self._rl_config.epsilon_decay_multiplier
+        else:
+            until = 1
+            decay_after = 200
+            decay_mult = 0.999
+
+        if index < until:
             return np.random.choice(self.actionDimension)   
             
         # Returns a random real number in the half-open interval [0.0, 1.0)
         # this number is used for the epsilon greedy approach
         randomNumber=np.random.random()
         
-        # after index episodes, we slowly start to decrease the epsilon parameter
-        if index>200:
-            self.epsilon=0.999*self.epsilon
+        if index > decay_after:
+            self.epsilon = decay_mult * self.epsilon
         
         # if this condition is satisfied, we are exploring, that is, we select random actions
         if randomNumber < self.epsilon:

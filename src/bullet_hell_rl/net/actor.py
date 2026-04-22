@@ -38,6 +38,7 @@ from ..bullethell import (
 # Default: no move (4), aim 0° -> flat 16
 DEFAULT_FLAT_ACTION = 4 * 4 + 0  # 16
 
+from ..DQN.actor_learner_rl_config import ACTOR_LEARNER_RL_CONFIG, ActorLearnerRLConfig
 from ..DQN.ActorServerComponent import Actor
 from ..DQN.actor_learner_rl_bridge import (
     build_obs_from_update,
@@ -48,11 +49,13 @@ from ..DQN.actor_learner_rl_bridge import (
 def initialize_prediction_network(
     weights_path: str,
     bootstrap_weights_path: str | None,
+    rl_config: ActorLearnerRLConfig | None = None,
 ) -> Actor:
     return Actor(
         on_message_callback=None,
         weights_path=weights_path,
         bootstrap_weights_path=bootstrap_weights_path,
+        rl_config=rl_config or ACTOR_LEARNER_RL_CONFIG,
     )
 
 # Use poll_message for a nonblocking queue check (e.g. MSG_WEIGHTS_READY from learner broadcasts).
@@ -111,6 +114,7 @@ def run_actor(
     token: str | None = None,
     weights_path: str = "shared_weights.h5",
     bootstrap_weights_path: str | None = None,
+    rl_config: ActorLearnerRLConfig | None = None,
 ) -> None:
     """
     Connect to the game server, then run the render loop and send actions.
@@ -118,7 +122,10 @@ def run_actor(
     "Connecting..." then the game once the server sends updates.
     """
 
-    dqn_actor = initialize_prediction_network(weights_path, bootstrap_weights_path)
+    cfg = rl_config or ACTOR_LEARNER_RL_CONFIG
+    dqn_actor = initialize_prediction_network(
+        weights_path, bootstrap_weights_path, rl_config=cfg
+    )
 
     # MSG_LEARNER_INIT is consumed synchronously in Actor.__init__; ACK so learner can treat us as ready.
     if dqn_actor.learner_socket is not None:
@@ -265,7 +272,7 @@ def run_actor(
             )
             rl_step += 1
 
-        selection_index = max(1, rl_step // 50)
+        selection_index = max(1, rl_step // cfg.selection_index_divisor)
         flat = int(dqn_actor.selectAction(curr_obs, selection_index))
 
         if now - last_send_time >= send_interval:

@@ -44,6 +44,11 @@ from tensorflow.keras.losses import MSE as mean_squared_error
 import threading
 import queue
 
+from bullet_hell_rl.DQN.actor_learner_rl_config import (
+    ACTOR_LEARNER_RL_CONFIG,
+    ActorLearnerRLConfig,
+)
+
 class Actor:
 #Actor will also be able to establish a connection to localhost port 5556 this will be the learner.     
     ###########################################################################
@@ -61,15 +66,15 @@ class Actor:
         on_message_callback=None,
         weights_path: str = "shared_weights.h5",
         bootstrap_weights_path: str | None = None,
+        rl_config: ActorLearnerRLConfig | None = None,
     ):       
-        self.epsilon=1
+        self._rl_config = rl_config or ACTOR_LEARNER_RL_CONFIG
+        self.epsilon = self._rl_config.epsilon_start
         self.learner_socket = None
         self.weights_path = weights_path
         self.bootstrap_weights_path = bootstrap_weights_path
-        # state dimension
-        self.stateDimension=63
-        # action dimension (5 moves × 4 aim angles at 90° steps = 20)
-        self.actionDimension=20
+        self.stateDimension = self._rl_config.state_dimension
+        self.actionDimension = self._rl_config.action_dimension
         
         # mainNetwork: inference (compiled with MSE; weights may come from learner-trained model)
         self.mainNetwork = self._create_inference_network()
@@ -107,8 +112,20 @@ class Actor:
 
     def _create_inference_network(self):
         model = Sequential()
-        model.add(Dense(128, input_dim=self.stateDimension, activation="relu"))
-        model.add(Dense(56, activation="relu"))
+        cfg = self._rl_config
+        first = True
+        for units in cfg.hidden_units:
+            if first:
+                model.add(
+                    Dense(
+                        units,
+                        input_dim=self.stateDimension,
+                        activation=cfg.hidden_activation,
+                    )
+                )
+                first = False
+            else:
+                model.add(Dense(units, activation=cfg.hidden_activation))
         model.add(Dense(self.actionDimension, activation="linear"))
         model.compile(optimizer=RMSprop(), loss="mse")
         return model
@@ -280,19 +297,17 @@ class Actor:
     # INPUTS: 
     # state - state for which to compute the action
     # index - index of the current episode
-    def selectAction(self,state,index):        
-        # first index episodes we select completely random actions to have enough exploration
-        # change this
-        if index<1:
+    def selectAction(self,state,index):
+        cfg = self._rl_config
+        if index < cfg.explore_pure_random_until_selection_index:
             return np.random.choice(self.actionDimension)   
             
         # Returns a random real number in the half-open interval [0.0, 1.0)
         # this number is used for the epsilon greedy approach
         randomNumber=np.random.random()
         
-        # after index episodes, we slowly start to decrease the epsilon parameter
-        if index>200:
-            self.epsilon=0.999*self.epsilon
+        if index > cfg.epsilon_decay_after_selection_index:
+            self.epsilon = cfg.epsilon_decay_multiplier * self.epsilon
         
         # if this condition is satisfied, we are exploring, that is, we select random actions
         if randomNumber < self.epsilon:
