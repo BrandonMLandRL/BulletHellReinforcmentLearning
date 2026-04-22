@@ -141,7 +141,6 @@ def run_client(
                 with state_lock:
                     last_state.clear()
                     last_state.update(msg)
-                    print(msg.get("tick"))
             elif msg.get("type") == MSG_RESPAWN:
                 with state_lock:
                     last_respawn = msg

@@ -197,6 +197,7 @@ def run_server(host: str = "0.0.0.0", port: int = 5555, secret: str | None = Non
                 "world_height": WORLD_HEIGHT,
                 "entity_size": ENTITY_SIZE,
             })
+            print(f"new client {cid} connected ")
             t = threading.Thread(
                 target=_client_recv_loop,
                 args=(cid, sock, message_queue, queue_lock),
@@ -218,6 +219,7 @@ def run_server(host: str = "0.0.0.0", port: int = 5555, secret: str | None = Non
                     with clients_lock:
                         if cid in clients:
                             clients[cid].disconnected = True
+                            print(f"client {cid} disconnected")
                     continue
                 if msg.get("type") == MSG_ACTION:
                     a = msg.get("action", 0)
