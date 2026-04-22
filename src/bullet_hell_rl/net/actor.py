@@ -11,14 +11,15 @@ import pygame
 
 from .protocol import (
     MSG_ACTION,
+    MSG_EXPERIENCE_TUPLE,
     MSG_JOIN,
     MSG_RESPAWN,
     MSG_UPDATE,
     MSG_WELCOME,
     MSG_WEIGHTS_READY,
+    MSG_WEIGHTS_READY_ACK,
     recv_message,
     send_message,
-    MSG_WEIGHTS_READY_ACK,
 )
 
 # Colors (match bullethell)

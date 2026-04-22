@@ -29,6 +29,7 @@ gym==0.26.2
 
 """
 # import the necessary libraries
+import gc
 import os
 import numpy as np
 import socket
@@ -123,8 +124,13 @@ class Actor:
             print(f"Actor: no weights file at {load_path or self.weights_path}; using random init")
             return
         try:
-            loaded = keras.models.load_model(load_path, compile=False)
-            self.mainNetwork.set_weights(loaded.get_weights())
+            try:
+                self.mainNetwork.load_weights(load_path)
+            except Exception:
+                loaded = keras.models.load_model(load_path, compile=False)
+                self.mainNetwork.set_weights(loaded.get_weights())
+                del loaded
+                gc.collect()
             print(f"Actor: loaded weights from {load_path}")
         except Exception as e:
             print(f"Actor: failed to load {load_path}: {e}")

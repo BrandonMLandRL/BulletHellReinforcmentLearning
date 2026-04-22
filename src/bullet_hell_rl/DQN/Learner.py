@@ -1,7 +1,10 @@
 # Learner TCP service: receives experience tuples from actors, trains legacy DQN, publishes weights.
+import gc
 import os
 import queue
+import shutil
 import threading
+import time
 
 import numpy as np
 from tensorflow import keras
@@ -26,14 +29,36 @@ class _DummyEnv:
     pass
 
 
-def _atomic_save_model(model, path: str) -> None:
+def _atomic_save_weights(model, path: str) -> None:
+    """
+    Write weights-only HDF5 to a unique temp file, then replace the destination.
+    Temp paths must end in .h5 so Keras writes a single file (not a SavedModel folder).
+    On Windows, replace fails if another process still has the file open; retry briefly.
+    """
     path = os.path.abspath(path)
     parent = os.path.dirname(path)
     if parent:
         os.makedirs(parent, exist_ok=True)
-    tmp = path + ".tmp"
-    model.save(tmp)
-    os.replace(tmp, path)
+    tmp = f"{path}.tmp.{os.getpid()}.{time.time_ns()}.h5"
+    try:
+        model.save_weights(tmp, save_format="h5")
+        last_err: OSError | None = None
+        for _ in range(60):
+            try:
+                if os.path.isdir(path):
+                    shutil.rmtree(path, ignore_errors=False)
+                os.replace(tmp, path)
+                return
+            except (PermissionError, OSError) as e:
+                last_err = e
+                time.sleep(0.05)
+        raise last_err if last_err else OSError("failed to publish weights file")
+    finally:
+        if os.path.isfile(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
 
 
 class Learner:
@@ -53,6 +78,7 @@ class Learner:
         self._ack_lock = threading.Lock()
         self._can_broadcast = True
         self._pending_acks = 0
+        self._experience_recv_count = 0
 
         self.dqn = DeepQLearning(
             _DummyEnv(),
@@ -73,8 +99,13 @@ class Learner:
             print(f"Learner: no checkpoint at {self.weights_path}; using fresh networks")
             return
         try:
-            loaded = keras.models.load_model(load_path, compile=False)
-            self.dqn.mainNetwork.set_weights(loaded.get_weights())
+            try:
+                self.dqn.mainNetwork.load_weights(load_path)
+            except Exception:
+                loaded = keras.models.load_model(load_path, compile=False)
+                self.dqn.mainNetwork.set_weights(loaded.get_weights())
+                del loaded
+                gc.collect()
             self.dqn.targetNetwork.set_weights(self.dqn.mainNetwork.get_weights())
             print(f"Learner: loaded weights from {load_path}")
         except Exception as e:
@@ -94,7 +125,15 @@ class Learner:
                 return
         with self.lsc._client_lock:
             n = len(self.lsc._client_sockets)
-        _atomic_save_model(self.dqn.mainNetwork, self.weights_path)
+        try:
+            _atomic_save_weights(self.dqn.mainNetwork, self.weights_path)
+        except (PermissionError, OSError) as e:
+            print(
+                f"Learner: failed to save weights to {self.weights_path}: {e!r}. "
+                "Close other programs using this file; Actor releases the handle after each load_weights.",
+                flush=True,
+            )
+            return
         if n == 0:
             print(f"Learner: saved weights to {self.weights_path} (no actors connected)")
             return
@@ -136,11 +175,28 @@ class Learner:
                 ns = np.asarray(next_state, dtype=np.float32)
                 self.dqn.replayBuffer.append((s, action, reward, ns, done))
                 self.dqn.stepCount += 1
+                self._experience_recv_count += 1
+                nrx = self._experience_recv_count
+                buf = len(self.dqn.replayBuffer)
+                # if nrx <= 5 or nrx % 30 == 0:
+                #     print(
+                #         f"Learner: received experience #{nrx} from actor "
+                #         f"(action={action}, reward={reward:.2f}, done={done}, replay_size={buf})",
+                #         flush=True,
+                #     )
                 trained = self.dqn.trainNetwork()
                 if trained:
                     self._try_publish_weights()
             elif mtype == MSG_WEIGHTS_READY_ACK:
                 self._on_ack()
+                with self._ack_lock:
+                    pend = self._pending_acks
+                    can_b = self._can_broadcast
+                print(
+                    f"Learner: received weights_ack from actor "
+                    f"(pending_acks={pend}, can_broadcast={can_b})",
+                    flush=True,
+                )
             else:
                 print(f"Unexpected Learner msg type: {mtype}")
 

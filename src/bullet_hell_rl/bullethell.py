@@ -102,9 +102,10 @@ class Entity:
                     # Take damage
                     self.health -= bullet.damage
                     if self.is_friendly:
-                        print("hit the player")
+                        pass
+                        # print("hit the player")
                     else:
-                        print("hit enemy")
+                        # print("hit enemy")
                         if self.health <= 0 and not killed:
                             killed = True
                             # Server can tag bullets with owner_id; local/env bullets may not have it.
