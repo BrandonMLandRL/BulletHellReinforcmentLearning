@@ -121,7 +121,8 @@ class LearnerServerComponent:
                 except OSError:
                     pass
 
-    def start_server(self) -> None:
+    def start_background(self) -> None:
+        """Bind, listen, and start accept/send threads; returns immediately."""
         self._server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._server_socket.bind((self._host, self._port))
@@ -142,6 +143,8 @@ class LearnerServerComponent:
         self._send_thread.start()
         self._accept_thread.start()
 
+    def start_server(self) -> None:
+        self.start_background()
         try:
             while self._accept_thread.is_alive():
                 self._accept_thread.join(timeout=1.0)

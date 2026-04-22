@@ -1,31 +1,38 @@
-#This file will be used to create and run the GameServer, Actor, and Learner
-#It will also take in a filename to be used as the shared weights file between Actor and Learner
+# Launch game server, learner, and actor subprocesses with a shared weights file path.
 import os
-import sys
-import queue
 import subprocess
+import sys
+import time
+
 
 def main() -> None:
-    #Filename Arg Parse
-    filename = "shared_weights.h5"
+    root = os.path.dirname(os.path.abspath(__file__))
+    weights_name = os.environ.get("SHARED_WEIGHTS", "shared_weights.h5")
+    weights_path = weights_name if os.path.isabs(weights_name) else os.path.join(root, weights_name)
 
-    #Create Queue for IPC
-    q = queue.Queue()
+    bootstrap = os.environ.get("BOOTSTRAP_WEIGHTS")
+    if bootstrap and not os.path.isabs(bootstrap):
+        bootstrap = os.path.join(root, bootstrap)
 
-    #Create GameServer
-    # from src.bullet_hell_rl.net.server import run_server
-    run_game_server = subprocess.Popen(
-        [sys.executable, "-u", "run_server.py"], creationflags=subprocess.CREATE_NEW_CONSOLE
-    )
+    env = os.environ.copy()
+    env["SHARED_WEIGHTS"] = weights_path
+    if bootstrap:
+        env["BOOTSTRAP_WEIGHTS"] = bootstrap
 
-    #Create Learner - Learner will accept a queue of experience tuples (s, a, r, s') from Actors
-    run_learner = subprocess.Popen(
-        [sys.executable, "-u", "run_learner.py"], creationflags=subprocess.CREATE_NEW_CONSOLE
-    )
-    # Create x Actors - actor will automatically connect to GameServer
-    run_actor = subprocess.Popen(
-        [sys.executable, "-u", "run_actor.py"], creationflags=subprocess.CREATE_NEW_CONSOLE
-    )
+    creationflags = subprocess.CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
+    popen_kw = {"env": env, "cwd": root}
+    if creationflags:
+        popen_kw["creationflags"] = creationflags
+
+    subprocess.Popen([sys.executable, "-u", "run_server.py"], **popen_kw)
+    # Learner must listen before actors connect (short timeout in Actor.__init__).
+    subprocess.Popen([sys.executable, "-u", "run_learner.py", "--weights", weights_path], **popen_kw)
+    time.sleep(2.5)
+    actor_cmd = [sys.executable, "-u", "run_actor.py", "--weights", weights_path]
+    if bootstrap:
+        actor_cmd.extend(["--bootstrap", bootstrap])
+    subprocess.Popen(actor_cmd, **popen_kw)
+
 
 if __name__ == "__main__":
     main()

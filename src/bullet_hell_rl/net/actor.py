@@ -2,7 +2,7 @@
 Multiplayer Bullet Hell client.
 Connects to server, receives welcome and state updates, sends actions, renders from server state.
 """
-import random
+import os
 import socket
 import threading
 from typing import Any
@@ -15,10 +15,9 @@ from .protocol import (
     MSG_RESPAWN,
     MSG_UPDATE,
     MSG_WELCOME,
-    move_and_angle_to_flat_action,
+    MSG_WEIGHTS_READY,
     recv_message,
     send_message,
-    MSG_EXPERIENCE_TUPLE,
     MSG_WEIGHTS_READY_ACK,
 )
 
@@ -39,18 +38,27 @@ from ..bullethell import (
 DEFAULT_FLAT_ACTION = 4 * 4 + 0  # 16
 
 from ..DQN.ActorServerComponent import Actor
+from ..DQN.actor_learner_rl_bridge import (
+    build_obs_from_update,
+    compute_reward_and_done,
+)
 
 
-def initialize_prediction_network():
-    return Actor(on_message_callback=None)
+def initialize_prediction_network(
+    weights_path: str,
+    bootstrap_weights_path: str | None,
+) -> Actor:
+    return Actor(
+        on_message_callback=None,
+        weights_path=weights_path,
+        bootstrap_weights_path=bootstrap_weights_path,
+    )
 
 # Use poll_message for a nonblocking queue check (e.g. MSG_WEIGHTS_READY from learner broadcasts).
 def poll_message(actor, timeout=None):
     """Grab next message from learner recv queue, or None if empty / timeout."""
     try:
-        msg = actor._recv_queue.get(timeout=timeout)
-        print(msg)
-        return msg
+        return actor._recv_queue.get(timeout=timeout)
     except queue.Empty:
         return None
         
@@ -59,6 +67,8 @@ def send_experience(actor, state, action, reward, next_state, done, meta=None):
     Queue an experience tuple to be delivered to the learner.
     Shape/encoding is up to you – just be consistent on learner side.
     """
+    if actor._send_thread is None:
+        return
     msg = {
         "type": MSG_EXPERIENCE_TUPLE,
         "state": state.tolist() if hasattr(state, "tolist") else state,
@@ -71,14 +81,35 @@ def send_experience(actor, state, action, reward, next_state, done, meta=None):
     actor._send_queue.put(msg)
 
 def send_weights_ack(actor):
+    if actor._send_thread is None:
+        return
     msg = {
         "type": MSG_WEIGHTS_READY_ACK
     }
     actor._send_queue.put(msg)
+def _drain_learner_messages(
+    dqn_actor: Actor,
+    weights_path: str,
+) -> None:
+    while True:
+        try:
+            msg = dqn_actor._recv_queue.get_nowait()
+        except queue.Empty:
+            break
+        if msg.get("type") == MSG_WEIGHTS_READY:
+            path = msg.get("path") or weights_path
+            abs_path = path if os.path.isabs(path) else os.path.abspath(path)
+            dqn_actor.reload_weights(abs_path)
+            if dqn_actor.learner_socket is not None:
+                send_weights_ack(dqn_actor)
+
+
 def run_actor(
     host: str = "127.0.0.1",
     port: int = 5555,
     token: str | None = None,
+    weights_path: str = "shared_weights.h5",
+    bootstrap_weights_path: str | None = None,
 ) -> None:
     """
     Connect to the game server, then run the render loop and send actions.
@@ -86,7 +117,7 @@ def run_actor(
     "Connecting..." then the game once the server sends updates.
     """
 
-    dqn_actor = initialize_prediction_network()
+    dqn_actor = initialize_prediction_network(weights_path, bootstrap_weights_path)
 
     # MSG_LEARNER_INIT is consumed synchronously in Actor.__init__; ACK so learner can treat us as ready.
     if dqn_actor.learner_socket is not None:
@@ -179,8 +210,14 @@ def run_actor(
     send_interval = 1.0 / 60  # send at most 60 actions per second
     last_send_time = 0.0
     running = True
+    prev_update: dict[str, Any] | None = None
+    prev_obs = None
+    prev_action = DEFAULT_FLAT_ACTION
+    rl_step = 0
 
     while running:
+        _drain_learner_messages(dqn_actor, weights_path)
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 running = False
@@ -188,14 +225,7 @@ def run_actor(
         if not running:
             break
 
-        flat = random.randint(0, 19)
         now = pygame.time.get_ticks() / 1000.0
-        if now - last_send_time >= send_interval:
-            try:
-                send_message(sock, {"type": MSG_ACTION, "action": flat})
-                last_send_time = now
-            except OSError:
-                break
 
         with state_lock:
             state = dict(last_state)
@@ -214,6 +244,39 @@ def run_actor(
             if last_respawn is not None:
                 respawn_show_until = now_sec + 1.0
                 last_respawn = None
+
+        curr_obs = build_obs_from_update(state)
+        if prev_obs is not None and prev_update is not None:
+            prev_tick = prev_update.get("tick")
+            curr_tick = state.get("tick")
+            tick_delta = None
+            if isinstance(prev_tick, int) and isinstance(curr_tick, int):
+                tick_delta = curr_tick - prev_tick
+            reward, done, meta = compute_reward_and_done(prev_update, state, tick_delta)
+            send_experience(
+                dqn_actor,
+                prev_obs,
+                prev_action,
+                reward,
+                curr_obs,
+                done,
+                meta,
+            )
+            rl_step += 1
+
+        selection_index = max(1, rl_step // 50)
+        flat = int(dqn_actor.selectAction(curr_obs, selection_index))
+
+        if now - last_send_time >= send_interval:
+            try:
+                send_message(sock, {"type": MSG_ACTION, "action": flat})
+                last_send_time = now
+            except OSError:
+                break
+
+        prev_update = dict(state)
+        prev_obs = curr_obs
+        prev_action = flat
 
         players = state.get("players", [])
         enemies = state.get("enemies", [])

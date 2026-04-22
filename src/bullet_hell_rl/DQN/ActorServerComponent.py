@@ -29,8 +29,10 @@ gym==0.26.2
 
 """
 # import the necessary libraries
+import os
 import numpy as np
 import socket
+from tensorflow import keras
 from bullet_hell_rl.net import protocol
 from tensorflow.keras.layers import Dense
 from tensorflow.keras.models import Sequential
@@ -53,16 +55,23 @@ class Actor:
     # numberEpisodes - total number of simulation episodes
     
             
-    def __init__(self, on_message_callback=None):       
+    def __init__(
+        self,
+        on_message_callback=None,
+        weights_path: str = "shared_weights.h5",
+        bootstrap_weights_path: str | None = None,
+    ):       
         self.epsilon=1
         self.learner_socket = None
+        self.weights_path = weights_path
+        self.bootstrap_weights_path = bootstrap_weights_path
         # state dimension
         self.stateDimension=63
         # action dimension (5 moves × 4 aim angles at 90° steps = 20)
         self.actionDimension=20
         
-        #mainNetwork will be created by loading in the .h5 weights file (or future better models will have .keras)
-        self.mainNetwork=None
+        # mainNetwork: inference (compiled with MSE; weights may come from learner-trained model)
+        self.mainNetwork = self._create_inference_network()
 
         self.index = 0 
         #Index and epsilon will be updated via message by the learner when it broadcasts weights.
@@ -93,6 +102,37 @@ class Actor:
         except OSError:
             self.learner_socket = None
             print("Failed to connect to TCP Learner")
+        self._load_weights_from_disk()
+
+    def _create_inference_network(self):
+        model = Sequential()
+        model.add(Dense(128, input_dim=self.stateDimension, activation="relu"))
+        model.add(Dense(56, activation="relu"))
+        model.add(Dense(self.actionDimension, activation="linear"))
+        model.compile(optimizer=RMSprop(), loss="mse")
+        return model
+
+    def _load_weights_from_disk(self, path: str | None = None) -> None:
+        load_path = path
+        if load_path is None:
+            if self.weights_path and os.path.isfile(self.weights_path):
+                load_path = self.weights_path
+            elif self.bootstrap_weights_path and os.path.isfile(self.bootstrap_weights_path):
+                load_path = self.bootstrap_weights_path
+        if not load_path or not os.path.isfile(load_path):
+            print(f"Actor: no weights file at {load_path or self.weights_path}; using random init")
+            return
+        try:
+            loaded = keras.models.load_model(load_path, compile=False)
+            self.mainNetwork.set_weights(loaded.get_weights())
+            print(f"Actor: loaded weights from {load_path}")
+        except Exception as e:
+            print(f"Actor: failed to load {load_path}: {e}")
+
+    def reload_weights(self, path: str | None = None) -> None:
+        """Reload policy weights (e.g. after learner broadcast)."""
+        self._load_weights_from_disk(path or self.weights_path)
+
     def _start_background_threads(self):
         if self.learner_socket is None:
             return

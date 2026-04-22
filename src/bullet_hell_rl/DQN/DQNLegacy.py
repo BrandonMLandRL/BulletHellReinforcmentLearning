@@ -307,7 +307,10 @@ class  DeepQLearning:
     ###########################################################################
     
     def trainNetwork(self):
-
+        """
+        Train one step if the replay buffer is large enough and stepCount matches trainFreq.
+        Returns True if a fit() was performed.
+        """
         # if the replay buffer has at least batchReplayBufferSize elements,
         # then train the model 
         # otherwise wait until the size of the elements exceeds batchReplayBufferSize
@@ -376,6 +379,8 @@ class  DeepQLearning:
                     print("Counter value {}".format(self.counterUpdateTargetNetwork))
                     # reset the counter
                     self.counterUpdateTargetNetwork=0
+                return True
+        return False
     ###########################################################################
     #    END - function trainNetwork() 
     ###########################################################################     
