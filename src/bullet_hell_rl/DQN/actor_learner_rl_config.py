@@ -22,6 +22,7 @@ class ActorLearnerRLConfig:
     batch_size: int = 64
     min_replay_size: int = 2000
     target_network_period: int = 1000
+    weights_publish_every: int = 100
 
     epsilon_start: float = 1.0
     number_episodes: int = 10**9
@@ -39,6 +40,10 @@ def validate_actor_learner_rl_config(config: ActorLearnerRLConfig) -> None:
         raise ValueError(
             f"action_dimension={config.action_dimension} must equal "
             f"net.protocol.FLAT_ACTION_COUNT={protocol.FLAT_ACTION_COUNT}"
+        )
+    if config.weights_publish_every < 1:
+        raise ValueError(
+            f"weights_publish_every={config.weights_publish_every} must be >= 1"
         )
 
 

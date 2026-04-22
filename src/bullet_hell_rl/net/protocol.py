@@ -19,6 +19,7 @@ MSG_RESPAWN = "respawn"
 MSG_EXPERIENCE_TUPLE = "experience_tuple"
 MSG_WEIGHTS_READY = "weights_ready"
 MSG_WEIGHTS_READY_ACK = "weights_ack"
+MSG_ACTOR_READY = "actor_ready"
 MSG_LEARNER_INIT = "init"
 
 # Action space: 5 moves (0-4) x 4 aim angles (0, 90, 180, 270) = 20 flat actions

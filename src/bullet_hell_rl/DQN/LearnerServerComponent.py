@@ -13,7 +13,7 @@ OnMessage = Optional[Callable[[Dict[str, Any]], None]]
 
 
 class LearnerServerComponent:
-    """Accepts many actors; merges inbound JSON messages into _recv_queue; drains _send_queue to all clients."""
+    """Accepts many actors; demuxes inbound to _recv_queue (experience) vs _recv_priority_queue (ACK/handshake); drains _send_queue to all clients."""
 
     def __init__(
         self,
@@ -26,6 +26,8 @@ class LearnerServerComponent:
         self._on_message = on_message_callback
 
         self._recv_queue: queue.Queue = queue.Queue()
+        self._recv_priority_queue: queue.Queue = queue.Queue()
+        self._recv_priority_pending = threading.Event()
         self._send_queue: queue.Queue = queue.Queue()
         self._stop_event = threading.Event()
 
@@ -53,7 +55,15 @@ class LearnerServerComponent:
                 msg = protocol.recv_message(conn)
                 if msg is None:
                     break
-                self._recv_queue.put(msg)
+                mtype = msg.get("type") if isinstance(msg, dict) else None
+                if mtype in (
+                    protocol.MSG_WEIGHTS_READY_ACK,
+                    protocol.MSG_ACTOR_READY,
+                ):
+                    self._recv_priority_queue.put(msg)
+                    self._recv_priority_pending.set()
+                else:
+                    self._recv_queue.put(msg)
                 if self._on_message is not None:
                     try:
                         self._on_message(msg)

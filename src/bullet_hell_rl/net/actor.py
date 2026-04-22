@@ -17,7 +17,6 @@ from .protocol import (
     MSG_UPDATE,
     MSG_WELCOME,
     MSG_WEIGHTS_READY,
-    MSG_WEIGHTS_READY_ACK,
     recv_message,
     send_message,
 )
@@ -84,13 +83,7 @@ def send_experience(actor, state, action, reward, next_state, done, meta=None):
     }
     actor._send_queue.put(msg)
 
-def send_weights_ack(actor):
-    if actor._send_thread is None:
-        return
-    msg = {
-        "type": MSG_WEIGHTS_READY_ACK
-    }
-    actor._send_queue.put(msg)
+
 def _drain_learner_messages(
     dqn_actor: Actor,
     weights_path: str,
@@ -104,8 +97,7 @@ def _drain_learner_messages(
             path = msg.get("path") or weights_path
             abs_path = path if os.path.isabs(path) else os.path.abspath(path)
             dqn_actor.reload_weights(abs_path)
-            if dqn_actor.learner_socket is not None:
-                send_weights_ack(dqn_actor)
+            dqn_actor.send_weights_ack()
 
 
 def run_actor(
@@ -127,9 +119,8 @@ def run_actor(
         weights_path, bootstrap_weights_path, rl_config=cfg
     )
 
-    # MSG_LEARNER_INIT is consumed synchronously in Actor.__init__; ACK so learner can treat us as ready.
     if dqn_actor.learner_socket is not None:
-        send_weights_ack(dqn_actor)
+        dqn_actor.send_actor_ready()
     else:
         print("Actor: no learner connection (is the learner running on 127.0.0.1:5556?)")
 

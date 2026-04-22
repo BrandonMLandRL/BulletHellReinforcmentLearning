@@ -29,9 +29,11 @@ def main() -> None:
     subprocess.Popen([sys.executable, "-u", "run_learner.py", "--weights", weights_path], **popen_kw)
     time.sleep(2.5)
     actor_cmd = [sys.executable, "-u", "run_actor.py", "--weights", weights_path]
-    if bootstrap:
-        actor_cmd.extend(["--bootstrap", bootstrap])
-    subprocess.Popen(actor_cmd, **popen_kw)
+    for i in range(4):
+
+        if bootstrap:
+            actor_cmd.extend(["--bootstrap", bootstrap])
+        subprocess.Popen(actor_cmd, **popen_kw)
 
 
 if __name__ == "__main__":

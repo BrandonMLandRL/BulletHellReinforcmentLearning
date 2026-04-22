@@ -31,6 +31,7 @@ gym==0.26.2
 # import the necessary libraries
 import gc
 import os
+import time
 import numpy as np
 import socket
 from tensorflow import keras
@@ -48,6 +49,11 @@ from bullet_hell_rl.DQN.actor_learner_rl_config import (
     ACTOR_LEARNER_RL_CONFIG,
     ActorLearnerRLConfig,
 )
+
+
+def _actor_log_ts() -> str:
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
 
 class Actor:
 #Actor will also be able to establish a connection to localhost port 5556 this will be the learner.     
@@ -85,6 +91,8 @@ class Actor:
  # Queues for cross-thread communication
         self._recv_queue = queue.Queue()   # messages from learner -> actor parent
         self._send_queue = queue.Queue()   # experience tuples from actor -> learner
+        self._send_priority_queue = queue.Queue()  # actor_ready / weights_ack
+        self._send_priority_pending = threading.Event()
         self._stop_event = threading.Event()
         self._recv_thread = None
         self._send_thread = None
@@ -138,7 +146,9 @@ class Actor:
             elif self.bootstrap_weights_path and os.path.isfile(self.bootstrap_weights_path):
                 load_path = self.bootstrap_weights_path
         if not load_path or not os.path.isfile(load_path):
-            print(f"Actor: no weights file at {load_path or self.weights_path}; using random init")
+            print(
+                f"[{_actor_log_ts()}] Actor: no weights file at {load_path or self.weights_path}; using random init"
+            )
             return
         try:
             try:
@@ -148,9 +158,9 @@ class Actor:
                 self.mainNetwork.set_weights(loaded.get_weights())
                 del loaded
                 gc.collect()
-            print(f"Actor: loaded weights from {load_path}")
+            print(f"[{_actor_log_ts()}] Actor: loaded weights from {load_path}")
         except Exception as e:
-            print(f"Actor: failed to load {load_path}: {e}")
+            print(f"[{_actor_log_ts()}] Actor: failed to load {load_path}: {e}")
 
     def reload_weights(self, path: str | None = None) -> None:
         """Reload policy weights (e.g. after learner broadcast)."""
@@ -171,50 +181,75 @@ class Actor:
             daemon=True,
         )
         self._send_thread.start()
-    
+
+    def send_actor_ready(self) -> None:
+        if self._send_thread is None:
+            return
+        self._send_priority_queue.put({"type": protocol.MSG_ACTOR_READY})
+        self._send_priority_pending.set()
+
+    def send_weights_ack(self) -> None:
+        if self._send_thread is None:
+            return
+        self._send_priority_queue.put({"type": protocol.MSG_WEIGHTS_READY_ACK})
+        self._send_priority_pending.set()
+
     def _actor_recv_thread(self):
         """Background thread that continuously receives messages from the learner."""
         sock = self.learner_socket
         if sock is None:
             return
-        while not self._stop_event.is_set():
-            msg = protocol.recv_message(sock)
-            if msg is None:
-                # Connection closed or error
-                break
-            # Push into the receive queue
-            self._recv_queue.put(msg)
-            # Optionally notify parent immediately
-            if self._on_message is not None:
-                try:
-                    self._on_message(msg)
-                except Exception as e:
-                    # Avoid killing the thread from user callback errors
-                    print(f"Actor on_message callback error: {e}")
-        # Clean up socket on exit
         try:
-            sock.close()
-        except OSError:
-            pass
-        self.learner_socket = None
+            while not self._stop_event.is_set():
+                msg = protocol.recv_message(sock)
+                if msg is None:
+                    # Connection closed or error
+                    break
+                # Push into the receive queue
+                self._recv_queue.put(msg)
+                # Optionally notify parent immediately
+                if self._on_message is not None:
+                    try:
+                        self._on_message(msg)
+                    except Exception as e:
+                        # Avoid killing the thread from user callback errors
+                        print(f"Actor on_message callback error: {e}")
+        finally:
+            try:
+                sock.close()
+            except OSError:
+                pass
+            self.learner_socket = None
 
     def _actor_send_thread(self):
-        """Background thread that sends messages enqueued in _send_queue to learner."""
+        """Sends _send_priority_queue (control) before _send_queue (experience)."""
         sock = self.learner_socket
         if sock is None:
             return
         while not self._stop_event.is_set():
+            conn_err = False
+            while True:
+                try:
+                    msg = self._send_priority_queue.get_nowait()
+                except queue.Empty:
+                    break
+                try:
+                    protocol.send_message(sock, msg)
+                except OSError:
+                    conn_err = True
+                    break
+            self._send_priority_pending.clear()
+            if conn_err:
+                break
             try:
-                msg = self._send_queue.get(timeout=0.5)
+                msg = self._send_queue.get(timeout=0.05)
             except queue.Empty:
                 continue
             if msg is None:
-                # Sentinel to signal shutdown
                 break
             try:
                 protocol.send_message(sock, msg)
             except OSError:
-                # Socket died; stop this thread
                 break
         try:
             sock.close()
