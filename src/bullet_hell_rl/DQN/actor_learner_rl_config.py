@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ActorLearnerRLConfig:
-    state_dimension: int = 63
+    state_dimension: int = 49
     action_dimension: int = 20
     hidden_units: tuple[int, ...] = (128, 56)
     hidden_activation: str = "relu"

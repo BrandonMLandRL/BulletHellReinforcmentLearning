@@ -105,6 +105,8 @@ def _build_player_state(player: Player, client_id: int) -> dict[str, Any]:
         "health": player.health,
         "kill_count": player.kill_count,
         "size": player.size,
+        "vel_x": float(player.vx),
+        "vel_y": float(player.vy),
     }
 
 
