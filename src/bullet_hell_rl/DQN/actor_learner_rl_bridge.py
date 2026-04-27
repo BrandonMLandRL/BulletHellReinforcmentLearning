@@ -142,7 +142,7 @@ def build_obs_from_update(
     bullets_raw = list(update_msg.get("bullets") or [])
 
     cones = _density_cone_features(bullets_raw, px, py)
-
+    # print(f"cones: {cones}")
     hostile = [b for b in bullets_raw if not b.get("is_friendly", False)]
     nearest_bu = _nearest_entities(px, py, hostile, N_BULLETS)
     bullets_obs = np.zeros((N_BULLETS, OBS_TRANSFORM_DIM), dtype=np.float32)
@@ -197,6 +197,11 @@ def build_obs_from_update(
 
     health_feat = np.array([health / PLAYER_HEALTH_MAX], dtype=np.float32)
 
+    # print(f"cones: {cones}")
+    # print(f"bullets_obs: {bullets_obs}")
+    # print(f"allies_obs: {allies_obs}")
+    # print(f"enemies_obs: {enemies_obs}")
+    # print(f"health_feat: {health_feat}")
     flat = np.concatenate(
         [
             cones,
@@ -211,10 +216,35 @@ def build_obs_from_update(
     return flat.astype(np.float32, copy=False)
 
 
-def _is_player_in_center(px: float, py: float) -> bool:
-    c_x = WORLD_WIDTH / 2
-    c_y = WORLD_HEIGHT / 2
-    return (px > c_x / 2 and px < c_x / 2 + c_x and py > c_y / 2 and py < c_y / 2 + c_y)
+def _center_control_reward(px: float, py: float) -> float:
+    center_x = WORLD_WIDTH / 2
+    center_y = WORLD_HEIGHT / 2
+    max_radius = WORLD_HEIGHT / 4
+    distance = math.dist((px, py), (center_x, center_y))
+    if distance > max_radius:
+        return -25.0
+
+    closeness = 1.0 - (distance / max_radius)
+    return 1.0 + (49.0 * closeness)
+
+
+def _count_nearby_alive_allies(curr_update_msg: UpdateMessage, px: float, py: float) -> int:
+    you_curr = curr_update_msg.get("you") or {}
+    own_id = you_curr.get("id")
+    ally_radius = WORLD_HEIGHT / 14
+    nearby_alive_allies = 0
+    for player in (curr_update_msg.get("players") or []):
+        if player.get("id") == own_id:
+            continue
+        if float(player.get("health", 0.0)) <= 0.0:
+            continue
+        distance = math.dist(
+            (px, py),
+            (float(player.get("x", 0.0)), float(player.get("y", 0.0))),
+        )
+        if distance <= ally_radius:
+            nearby_alive_allies += 1
+    return nearby_alive_allies
 
 
 def compute_reward_and_done(
@@ -223,7 +253,7 @@ def compute_reward_and_done(
     tick_delta: int | float | None,
 ) -> tuple[float, bool, MetaDict]:
     """
-    Reward aligned with BulletHellEnv priorities: kill bonus, damage penalty, center bonus, else +1.
+    Tick-based additive reward for multiplayer actor-learner updates.
     """
     _ = tick_delta
     meta: MetaDict = {}
@@ -237,29 +267,40 @@ def compute_reward_and_done(
     py = float(you_curr.get("y", 0.0))
 
     if prev_update_msg is None or prev_update_msg.get("type") != "update":
-        return 1.0, False, meta
+        meta["reason"] = "first_tick"
+        return 0.0, False, meta
 
     you_prev = prev_update_msg.get("you") or {}
     h_prev = float(you_prev.get("health", 0.0))
     k_prev = int(you_prev.get("kill_count", 0))
 
-    if k_curr > k_prev:
-        dk = k_curr - k_prev
-        reward = 100.0 * dk
-        meta["reason"] = "kill"
-    elif h_curr < h_prev:
-        reward = -300.0
-        meta["reason"] = "damage"
-    elif _is_player_in_center(px, py):
-        reward = 10.0
-        meta["reason"] = "center"
-    else:
-        reward = 1.0
-        meta["reason"] = "safe"
+    damaged = h_curr < h_prev
+    safe_term = 0.0 if not damaged else 0.0 #Just made this ineffective. too lazy to delte it correctly
+    damage_term = -1000.0 if damaged else 0.0
+
+    nearby_alive_allies = _count_nearby_alive_allies(curr_update_msg, px, py)
+    ally_term = 5.0 * nearby_alive_allies
+
+    center_term = _center_control_reward(px, py)
+    # print(f"Center control reward: {center_term}")
+
+    kill_delta = max(0, k_curr - k_prev)
+    kill_term = 100.0 * kill_delta
+
+    reward = safe_term + damage_term + ally_term + center_term + kill_term
+    meta["safe_term"] = safe_term
+    meta["damage_term"] = damage_term
+    meta["ally_term"] = ally_term
+    meta["nearby_alive_allies"] = nearby_alive_allies
+    meta["center_term"] = center_term
+    meta["kill_term"] = kill_term
+    meta["kill_delta"] = kill_delta
+    meta["reward_total"] = reward
+    meta["reason"] = "additive_tick_reward"
 
     done = h_curr <= 0
     if done:
-        meta["reason"] = "death"
+        meta["terminal_reason"] = "death"
     return reward, done, meta
 
 
@@ -344,7 +385,74 @@ def run_bridge_self_checks() -> None:
     obs = build_obs_from_update(dummy_update)
     assert obs.shape == (STATE_DIM,)
     r, d, _ = compute_reward_and_done(None, dummy_update, None)
-    assert r == 1.0 and not d
+    assert r == 0.0 and not d
+
+    prev_update = {
+        **dummy_update,
+        "you": {
+            **dummy_update["you"],
+            "x": WORLD_WIDTH / 2 + 10.0,
+            "y": WORLD_HEIGHT / 2,
+            "health": 100.0,
+            "kill_count": 0,
+        },
+        "players": [
+            {
+                "id": 1,
+                "x": WORLD_WIDTH / 2 + 12.0,
+                "y": WORLD_HEIGHT / 2 + 8.0,
+                "health": 100.0,
+                "kill_count": 0,
+                "size": 20,
+                "vel_x": 0.0,
+                "vel_y": 0.0,
+            },
+            {
+                "id": 2,
+                "x": WORLD_WIDTH / 2 + 500.0,
+                "y": WORLD_HEIGHT / 2 + 500.0,
+                "health": 100.0,
+                "kill_count": 0,
+                "size": 20,
+                "vel_x": 0.0,
+                "vel_y": 0.0,
+            },
+        ],
+    }
+    curr_update = {
+        **prev_update,
+        "you": {
+            **prev_update["you"],
+            "x": WORLD_WIDTH / 2,
+            "y": WORLD_HEIGHT / 2,
+            "health": 100.0,
+            "kill_count": 1,
+        },
+    }
+    r_add, d_add, meta_add = compute_reward_and_done(prev_update, curr_update, None)
+    assert not d_add
+    assert r_add == 56.0
+    assert meta_add["safe_term"] == 1.0
+    assert meta_add["ally_term"] == 5.0
+    assert meta_add["center_term"] == 25.0
+    assert meta_add["kill_term"] == 25.0
+
+    damage_update = {
+        **curr_update,
+        "you": {
+            **curr_update["you"],
+            "x": 0.0,
+            "y": 0.0,
+            "health": 90.0,
+            "kill_count": 1,
+        },
+        "players": [],
+    }
+    r_dmg, d_dmg, meta_dmg = compute_reward_and_done(curr_update, damage_update, None)
+    assert not d_dmg
+    assert r_dmg == -1002.0
+    assert meta_dmg["damage_term"] == -1000.0
+    assert meta_dmg["center_term"] == -2.0
     exp = serialize_experience(obs, 3, 1.0, obs, False)
     validate_experience_shape(exp)
 

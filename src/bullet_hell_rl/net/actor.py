@@ -224,6 +224,8 @@ def run_actor(
     rl_step = 0
     actor_r_sum = 0.0
     actor_r_n = 0
+    life_episode_reward_sum = 0.0
+    life_episode_rl_steps = 0
     actor_metric_every = actor_metrics_log_interval()
 
     while running:
@@ -264,6 +266,11 @@ def run_actor(
             if isinstance(prev_tick, int) and isinstance(curr_tick, int):
                 tick_delta = curr_tick - prev_tick
             reward, done, meta = compute_reward_and_done(prev_update, state, tick_delta)
+            you_prev = prev_update.get("you") or {}
+            you_curr = state.get("you") or {}
+            h_prev = float(you_prev.get("health", 0.0))
+            h_curr = float(you_curr.get("health", 0.0))
+
             send_experience(
                 dqn_actor,
                 prev_obs,
@@ -276,6 +283,25 @@ def run_actor(
             rl_step += 1
             actor_r_sum += float(reward)
             actor_r_n += 1
+
+            if h_prev > 0:
+                life_episode_reward_sum += float(reward)
+                life_episode_rl_steps += 1
+
+            if h_curr <= 0.0 and h_prev > 0.0:
+                try:
+                    log_metrics_record(
+                        "actor",
+                        "life_end",
+                        {
+                            "life_episode_reward": life_episode_reward_sum,
+                            "life_episode_rl_steps": life_episode_rl_steps,
+                        },
+                    )
+                except Exception as e:
+                    print(f"Actor: metrics log failed: {e}")
+                life_episode_reward_sum = 0.0
+                life_episode_rl_steps = 0
 
         selection_index = max(1, rl_step // cfg.selection_index_divisor)
         flat = int(dqn_actor.selectAction(curr_obs, selection_index))
